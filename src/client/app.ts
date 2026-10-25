@@ -7,6 +7,7 @@ import type { DocPayload, Effective, Prefs, Location, ZoomMode } from '../core/t
 import { exportDialog, gotoDialog, handoffDialog, infoDialog, shortcutsDialog } from './dialogs.js';
 import { announce, button, clear, h, replace } from './dom.js';
 import { LibraryPage } from './library.js';
+import { changeMaterial, materialButton } from './material.js';
 import { ReaderSession } from './reader.js';
 import { openSettings, type AppearanceHost } from './settings.js';
 import { Sidebar } from './sidebar.js';
@@ -121,7 +122,21 @@ export class App implements AppearanceHost {
     this.state.side = this.state.prefs.sidebar;
     const main = h('div', { class: 'main' }, this.banners, session.view.el);
     this.buildStatus();
-    this.root.append(this.toolbar.el, h('div', { class: 'body' }, this.sidebar.el, main), this.status);
+    const edge = materialButton('arrow_forward_ios', 'Show side panel', () => this.toggleSide(), { cls: 'side-edge-toggle' });
+    edge.setAttribute('aria-controls', 'reader-side-panel');
+    this.sidebar.el.id = 'reader-side-panel';
+    const body = h('div', { class: 'body reader-workspace' }, this.sidebar.el, edge, main);
+    const syncSide = (): void => {
+      const opened = this.state.side !== 'none';
+      body.classList.toggle('side-visible', opened);
+      edge.setAttribute('aria-expanded', String(opened));
+      edge.setAttribute('aria-label', opened ? 'Hide side panel' : 'Show side panel');
+      edge.title = opened ? 'Hide side panel (Ctrl+B)' : 'Show side panel (Ctrl+B)';
+      changeMaterial(edge, opened ? 'arrow_back_ios_new' : 'arrow_forward_ios');
+    };
+    this.state.on('side', syncSide);
+    this.root.append(this.toolbar.el, body, this.status);
+    syncSide();
     document.title = `${p.info.title || 'Document'} \u2013 SLAI Reader`;
     this.library = null;
     this.sidebar.render();

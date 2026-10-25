@@ -286,3 +286,61 @@ input[type="file"] { max-width: 100%; }
 
 /* the progress slider is a control too: keep its target at least 24 px tall (WCAG 2.2 target size) */
 .status .prog { height: 24px; }
+
+/* v2.4 Reader header: compact primary navigation and opt-in annotation workspace. */
+.toolbar { display:block; padding:0; min-width:0; }
+.reader-primary { display:flex; align-items:center; gap:6px; padding:6px 10px; min-height:54px; min-width:0; }
+.reader-primary .group { min-width:0; flex-shrink:0; gap:3px; margin-right:0; padding-right:8px; }
+.reader-primary .group[aria-label="Document"] { flex:1 1 190px; min-width:86px; overflow:hidden; }
+.reader-primary .group[aria-label="Actions"] { margin-left:auto; padding-right:0; border:0; }
+.reader-identity { display:flex; align-items:center; gap:7px; min-width:0; max-width:100%; flex:1; }
+.reader-identity .title { font-weight:650; max-width:none; min-width:0; padding:0; }
+.reader-identity .material-icon { flex:none; color:var(--muted); }
+.material-icon { display:inline-block; width:20px; height:20px; fill:currentColor; flex:none; pointer-events:none; vertical-align:middle; }
+.reader-primary .icon-btn { width:36px; height:36px; min-width:36px; padding:5px; }
+.reader-primary .zoomval { width:57px; min-width:0; }
+.reader-primary .group[aria-label="Pages"] .zoomval { width:43px; }
+.reader-primary select { max-width:136px; }
+.reader-tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:6px 12px 8px; border-top:1px solid var(--border); background:var(--chrome-2); }
+.reader-tools .group { flex-wrap:wrap; }
+.reader-tools .group[aria-label="Tool options"] { flex:1 1 140px; min-width:0; }
+.reader-tools .swatch { width:23px; height:23px; }
+.reader-menu { width:min(270px, calc(100vw - 16px)); max-height:min(70vh, 600px); overflow-y:auto; }
+.reader-menu-heading { font-size:.77rem; font-weight:700; color:var(--muted); padding:10px 10px 2px; letter-spacing:.02em; }
+.reader-menu-heading:not(:first-child) { border-top:1px solid var(--border); margin-top:6px; }
+.reader-menu button { min-height:36px; }
+.reader-workspace { position:relative; --reader-panel-size:330px; }
+.reader-workspace .side { width:var(--reader-panel-size); min-width:0; max-width:45vw; }
+.reader-workspace .side-edge-toggle { position:absolute; z-index:24; top:16px; left:0; transform:translateX(0); height:46px; width:26px; min-height:0; padding:4px; border-radius:0 8px 8px 0; background:var(--chrome); box-shadow:var(--shadow); transition:left 180ms ease, background-color 180ms ease; }
+.reader-workspace.side-visible .side-edge-toggle { left:min(var(--reader-panel-size), 45vw); }
+.reader-workspace .side-edge-toggle .material-icon { width:18px; height:18px; }
+.reader-workspace .main { min-width:0; }
+.focus-mode .side-edge-toggle { display:none; }
+@media (max-width:1300px) {
+  .reader-primary .fit-control { display:none; }
+  .reader-primary { gap:3px; padding-inline:6px; }
+  .reader-primary .group { padding-right:5px; }
+  .reader-identity .title { max-width:28ch; }
+}
+@media (max-width:1050px) {
+  .reader-primary .group[aria-label="Zoom"] .zoomval { width:54px; }
+  .reader-primary .group[aria-label="Layout"] { display:none; }
+  .reader-primary .group[aria-label="Actions"] .icon-btn:first-child { display:none; }
+  .reader-identity .title { max-width:22ch; }
+}
+@media (max-width:760px) {
+  .reader-primary .reader-identity .material-icon { display:none; }
+  .reader-primary .group[aria-label="Pages"] { display:none; }
+  .reader-primary .group[aria-label="Actions"] .icon-btn:nth-child(2) { display:none; }
+  .reader-identity .title { max-width:20ch; }
+  .reader-workspace { --reader-panel-size:min(88vw, 340px); }
+  .reader-workspace .side { width:var(--reader-panel-size); max-width:var(--reader-panel-size); }
+  .reader-workspace.side-visible .side-edge-toggle { left:var(--reader-panel-size); }
+}
+@media (max-width:450px) {
+  .reader-primary .group[aria-label="Document"] .icon-btn:nth-child(2) { display:none; }
+  .reader-identity .title { max-width:12ch; }
+  .reader-primary .group[aria-label="Zoom"] .zoomval { display:none; }
+}
+@media (prefers-reduced-motion:reduce) { .reader-workspace .side-edge-toggle { transition:none; } }
+@media print { .reader-workspace .side-edge-toggle { display:none !important; } }
