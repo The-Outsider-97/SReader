@@ -137,6 +137,12 @@ export class Toolbar {
       ['Tools', [['Annotation toolbar', () => this.toggleTools()], ['Keyboard shortcuts', () => shortcutsDialog()],
         ['Open in Writer or Documaster', () => handoffDialog(s)]]],
     ];
+    for (const [heading, items] of sections) {
+      menu.appendChild(h('div', { class: 'reader-menu-heading', text: heading }));
+      for (const [label, run] of items)
+        menu.appendChild(h('button', { text: label, attrs: { role: 'menuitem', type: 'button' },
+          on: { click: () => { pop.close(); run(); } } }));
+    }
     const pop = popover(this.menuBtn.getBoundingClientRect(), menu, {
       label: 'Reader menu', onClose: () => {
         this.menuOpen = false; this.menuBtn.setAttribute('aria-expanded', 'false');
@@ -147,12 +153,6 @@ export class Toolbar {
     this.menuBtn.setAttribute('aria-expanded', 'true');
     this.menuBtn.setAttribute('aria-label', 'Close menu');
     changeMaterial(this.menuBtn, 'close');
-    for (const [heading, items] of sections) {
-      menu.appendChild(h('div', { class: 'reader-menu-heading', text: heading }));
-      for (const [label, run] of items)
-        menu.appendChild(h('button', { text: label, attrs: { role: 'menuitem', type: 'button' },
-          on: { click: () => { pop.close(); run(); } } }));
-    }
     menu.querySelector<HTMLButtonElement>('button')?.focus();
   }
 
