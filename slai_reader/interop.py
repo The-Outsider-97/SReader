@@ -25,6 +25,7 @@ import socket
 import subprocess
 import sys
 import time
+
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +85,9 @@ def read_handoff(settings: Settings, raw_path: str) -> dict[str, Any]:
 
 def apply_handoff(session: Session, data: dict[str, Any]) -> dict[str, Any]:
     """After the document is open: compare identity, resolve the selection, choose where to land."""
-    doc = session.doc
+    # Session.doc is typed as OpenDocument, while these navigation/anchor
+    # helpers are provided by its concrete document implementations.
+    doc: Any = session.doc
     want = data["document"]
     notes: list[str] = []
     if want.get("fingerprint") and want["fingerprint"] != doc.fingerprint:
@@ -132,11 +135,20 @@ def send(settings: Settings, session: Session, target: str, position: dict[str, 
             raise DependencyMissing("SLAI Writer is not installed here: no Writer program is configured. Set SLAI_WRITER_CMD (or --writer-command) to the "
                                     "command that starts it; use {handoff} where the handoff file path belongs. The handoff file was written to "
                                     f"{handoff} and contains everything Writer needs to receive.", details=result)
-        argv = [part.replace("{handoff}", str(handoff)) for part in shlex.split(settings.writer_command, posix=os.name != "nt")]
-        if "{handoff}" not in settings.writer_command:
-            argv.append(str(handoff))
+        if os.name == "nt":
+            # Windows CreateProcess parses a command line, not POSIX shell tokens.
+            # shlex(posix=False) retains executable quotes, causing WinError 2.
+            quoted_handoff = subprocess.list2cmdline([str(handoff)])
+            command = settings.writer_command.replace('"{handoff}"', quoted_handoff).replace("{handoff}", quoted_handoff)
+            if "{handoff}" not in settings.writer_command:
+                command += " " + quoted_handoff
+        else:
+            command = [part.replace("{handoff}", str(handoff))
+                       for part in shlex.split(settings.writer_command)]
+            if "{handoff}" not in settings.writer_command:
+                command.append(str(handoff))
         try:
-            subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+            subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
         except OSError as exc:
             raise DependencyMissing(f"The Writer command could not be started: {exc}", details=result) from exc
         result["launched"] = True
