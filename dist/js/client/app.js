@@ -25,6 +25,7 @@ export class App {
     mq = window.matchMedia('(prefers-color-scheme: dark)');
     poll = 0;
     fileTimer = 0;
+    appearanceQueue = Promise.resolve();
     constructor(root, state) {
         this.root = root;
         this.state = state;
@@ -303,36 +304,49 @@ export class App {
         }
     }
     // ------------------------------------------------------------------ appearance
-    async setAppearance(patch, docOnly) {
-        const s = this.session;
-        try {
-            let eff;
-            if (s && docOnly) {
-                eff = await this.state.api.put(`/api/doc/${s.sid}/prefs`, { values: patch });
-                s.docPrefs = { ...s.docPrefs, ...patch };
-            }
-            else {
-                const res = await this.state.api.put('/api/prefs', patch);
-                this.state.prefs = res.values;
-                eff = res.effective;
-                if (s) {
-                    const overridden = Object.keys(patch).filter((k) => k in s.docPrefs);
-                    eff = await this.state.api.put(`/api/doc/${s.sid}/prefs`, { values: {}, unset: overridden });
-                    for (const k of overridden)
-                        delete s.docPrefs[k];
-                }
-            }
-            this.state.effective = eff;
-            this.applyTheme();
-            s?.view.appearanceChanged();
-            this.state.emit('prefs');
-            this.updateStatus();
-        }
-        catch (e) {
-            toast(e instanceof ApiError ? e.message : 'That setting could not be saved.');
-        }
+    queueAppearance(operation) {
+        const next = this.appearanceQueue.then(operation);
+        this.appearanceQueue = next.catch(() => undefined);
+        return next;
     }
-    async resetDocument() {
+    setAppearance(patch, docOnly) {
+        const s = this.session; // A queued update must not accidentally target the next document.
+        return this.queueAppearance(async () => {
+            try {
+                let eff;
+                if (s && docOnly) {
+                    eff = await this.state.api.put(`/api/doc/${s.sid}/prefs`, { values: patch });
+                    s.docPrefs = { ...s.docPrefs, ...patch };
+                }
+                else {
+                    const res = await this.state.api.put('/api/prefs', patch);
+                    this.state.prefs = res.values;
+                    eff = res.effective;
+                    if (s) {
+                        const overridden = Object.keys(patch).filter((k) => k in s.docPrefs);
+                        eff = await this.state.api.put(`/api/doc/${s.sid}/prefs`, { values: {}, unset: overridden });
+                        for (const k of overridden)
+                            delete s.docPrefs[k];
+                    }
+                }
+                if (this.session !== s) {
+                    await this.refreshEffective();
+                    return;
+                }
+                this.state.effective = eff;
+                this.applyTheme();
+                s?.view.appearanceChanged();
+                this.state.emit('prefs');
+                this.updateStatus();
+            }
+            catch (e) {
+                await this.refreshEffective();
+                toast(e instanceof ApiError ? e.message : 'That setting could not be saved.');
+                throw e;
+            }
+        });
+    }
+    async resetDocumentNow() {
         const s = this.session;
         if (!s)
             return;
@@ -343,23 +357,28 @@ export class App {
         this.state.emit('prefs');
         toast('This document now uses your general settings.');
     }
-    async resetEverything() {
-        const res = await this.state.api.post('/api/prefs/reset', {});
-        this.state.prefs = res.values;
-        await this.resetDocument().catch(() => undefined);
-        await this.refreshEffective();
+    resetDocument() {
+        return this.queueAppearance(() => this.resetDocumentNow());
+    }
+    resetEverything() {
+        return this.queueAppearance(async () => {
+            const res = await this.state.api.post('/api/prefs/reset', {});
+            this.state.prefs = res.values;
+            if (this.session)
+                await this.resetDocumentNow();
+            await this.refreshEffective();
+        });
     }
     openAppearance(anchor) { openSettings(this, anchor); }
     // ------------------------------------------------------------------ view commands
-    zoomTo(percent) { void this.setAppearance({ zoomMode: 'custom', zoom: clampZoom(percent) }, true); }
+    zoomTo(percent) { void this.setAppearance({ zoomMode: 'custom', zoom: clampZoom(percent) }, true).catch(() => undefined); }
     fit(mode) {
         if (mode === 'fit-page' && !this.session?.fixed && this.state.effective?.values.layout === 'continuous') {
             toast('Fit page applies to PDF pages and to paged text layouts.');
             return;
         }
-        void this.setAppearance({ zoomMode: mode }, true);
-    }
-    setLayout(layout) { void this.setAppearance({ layout }, true); }
+        void this.setAppearance({ zoomMode: mode }, true).catch(() => undefined); }
+    setLayout(layout) { void this.setAppearance({ layout }, true).catch(() => undefined); }
     toggleSide(force) {
         const open = force ?? this.state.side === 'none';
         const side = open ? (this.state.prefs.sidebar !== 'none' ? this.state.prefs.sidebar : 'outline') : 'none';

@@ -42,7 +42,7 @@ export class FlowView {
     resizeTimer = 0;
     destroyed = false;
     building = Promise.resolve();
-    built = { layout: '', cover: true, fs: 0, w: 0, zoom: 0, size: '' };
+    built = { layout: '', cover: true, fs: 0, family: '', spacing: 0, w: 0, zoom: 0, size: '' };
     constructor(ctx, payload) {
         this.ctx = ctx;
         this.payload = payload;
@@ -114,7 +114,8 @@ export class FlowView {
             this.mode = this.desiredMode();
             this.applyVars();
             const v = this.values;
-            this.built = { layout: v.layout, cover: v.coverAlone, fs: v.fontSize, w: v.columnWidth, zoom: this.zoomPercent(), size: `${this.el.clientWidth}x${this.el.clientHeight}` };
+            this.built = { layout: v.layout, cover: v.coverAlone, fs: v.fontSize, family: v.fontFamily, spacing: v.lineSpacing,
+                w: v.columnWidth, zoom: this.zoomPercent(), size: `${this.el.clientWidth}x${this.el.clientHeight}` };
             replace(this.el);
             if (this.total === 0) {
                 replace(this.el, h('div', { class: 'flow' }, h('p', { class: 'muted', text: 'This document has no readable text.' })));
@@ -160,15 +161,19 @@ export class FlowView {
         const v = this.values;
         const size = `${this.el.clientWidth}x${this.el.clientHeight}`;
         const structural = this.desiredMode() !== this.mode || (this.mode === 'paged' && (v.layout !== this.built.layout || v.coverAlone !== this.built.cover
-            || v.fontSize !== this.built.fs || v.columnWidth !== this.built.w || this.zoomPercent() !== this.built.zoom || size !== this.built.size));
+            || v.fontSize !== this.built.fs || v.fontFamily !== this.built.family || v.lineSpacing !== this.built.spacing
+            || v.columnWidth !== this.built.w || this.zoomPercent() !== this.built.zoom || size !== this.built.size));
         if (structural) {
             void this.build(null);
             return;
         }
         this.applyVars();
-        this.built = { ...this.built, fs: v.fontSize, w: v.columnWidth, zoom: this.zoomPercent() };
+        this.built = { ...this.built, fs: v.fontSize, family: v.fontFamily, spacing: v.lineSpacing, w: v.columnWidth, zoom: this.zoomPercent() };
         if (this.mode === 'scroll')
             this.reestimate();
+        else
+            for (const page of this.root.querySelectorAll('.flow'))
+                this.cloneVars(page);
         this.refreshBlocks();
     }
     // ------------------------------------------------------------------ scrolling layout

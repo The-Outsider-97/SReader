@@ -15,18 +15,39 @@ export function openSettings(app, anchor) {
     const cap = session?.payload.capabilities;
     const fixed = session?.fixed ?? false;
     const docOnly = h('input', { attrs: { type: 'checkbox' }, checked: app.docOnly, disabled: !session });
-    docOnly.addEventListener('change', () => { app.docOnly = docOnly.checked; });
     const dId = nextId('doc');
     docOnly.id = dId;
     let timer = 0;
+    let pending = {};
+    let pendingDocOnly = app.docOnly && !!session;
+    let pop;
+    const flush = () => {
+        window.clearTimeout(timer);
+        const patch = pending;
+        pending = {};
+        if (!Object.keys(patch).length)
+            return;
+        void app.setAppearance(patch, pendingDocOnly).then(refreshWarning, () => {
+            // Recreate the controls from the last confirmed effective values after a failed save.
+            if (pop.el.isConnected) {
+                pop.close();
+                openSettings(app, anchor);
+            }
+        });
+    };
     const commit = (patch, immediate = false) => {
         window.clearTimeout(timer);
-        const go = () => { void app.setAppearance(patch, app.docOnly && !!session).then(refreshWarning); };
+        const scope = app.docOnly && !!session;
+        if (Object.keys(pending).length && scope !== pendingDocOnly)
+            flush();
+        pendingDocOnly = scope;
+        pending = { ...pending, ...patch };
         if (immediate)
-            go();
+            flush();
         else
-            timer = window.setTimeout(go, 180);
+            timer = window.setTimeout(flush, 180);
     };
+    docOnly.addEventListener('change', () => { flush(); app.docOnly = docOnly.checked; });
     const row = (label, control, note, disabledWhy) => {
         const id = control.id || (control.id = nextId('s'));
         const wrap = h('div', { class: 'field' }, h('label', { text: label, attrs: { for: id } }), control);
@@ -68,6 +89,8 @@ export function openSettings(app, anchor) {
     const warn = h('div', { class: 'banner warn', hidden: true, attrs: { role: 'status' } });
     function refreshWarning() {
         const e = state.effective;
+        if (e.values.fontColor === null)
+            colour.value = e.colors.text;
         const r = readability(e.values.fontColor, e.theme, e.values.fontOpacity);
         warn.hidden = r.level === 'ok';
         warn.textContent = r.message ?? '';
@@ -90,10 +113,10 @@ export function openSettings(app, anchor) {
     pdfMode.value = v.pdfAppearance;
     pdfMode.addEventListener('change', () => commit({ pdfAppearance: pdfMode.value }, true));
     const flowOnly = fixed ? 'PDF pages are fixed layouts: their text size is part of the page. Use Zoom instead.' : undefined;
-    const body = h('div', { class: 'settings', style: { width: 'min(420px, 92vw)', maxHeight: '75vh', overflow: 'auto' } }, themeBox, h('div', { class: 'field' }, h('label', { text: 'Text colour', attrs: { for: (colour.id = nextId('s')) } }), h('div', { class: 'row' }, colour, themeColour), cap?.fontColorNote ? h('div', { class: 'hint', text: cap.fontColorNote }) : null), slider(30, 100, 5, v.fontOpacity, (n) => `${n}%`, (n) => ({ fontOpacity: n }), 'Text opacity', undefined, fixed ? cap?.fontColorNote : undefined), warn, slider(10, 48, 1, v.fontSize, (n) => `${n}px`, (n) => ({ fontSize: n }), 'Text size', flowOnly), row('Typeface', family, undefined, flowOnly), slider(1, 2.5, 0.1, v.lineSpacing, (n) => n.toFixed(1), (n) => ({ lineSpacing: Math.round(n * 10) / 10 }), 'Line spacing', flowOnly), slider(30, 140, 5, v.columnWidth, (n) => `${n} characters`, (n) => ({ columnWidth: n }), 'Line length', flowOnly), row('Alignment', align, undefined, flowOnly), ...(fixed ? [row('PDF colours', pdfMode, 'Recolours the page when it is drawn. Scanned images keep their own colours.')] : []), row('Page layout', layout), h('div', { class: 'row' }, cover, h('label', { text: 'In a two-page spread, show the cover on its own', attrs: { for: cid } })), h('hr'), h('div', { class: 'row' }, docOnly, h('label', { text: 'Apply these changes to this document only', attrs: { for: dId } })), h('div', { class: 'row', style: { marginTop: '10px' } }, button('Reset this document', () => { void app.resetDocument().then(() => pop.close()); }, { cls: 'small', disabled: !session }), button('Reset everything', () => { void confirmDialog('Reset all settings?', 'This puts every reading setting back to its default, for all documents.', 'Reset', true).then((ok) => { if (ok) {
-        void app.resetEverything().then(() => { pop.close(); toast('Settings reset.'); });
+    const body = h('div', { class: 'settings', style: { width: 'min(420px, 92vw)', maxHeight: '75vh', overflow: 'auto' } }, themeBox, h('div', { class: 'field' }, h('label', { text: 'Text colour', attrs: { for: (colour.id = nextId('s')) } }), h('div', { class: 'row' }, colour, themeColour), cap?.fontColorNote ? h('div', { class: 'hint', text: cap.fontColorNote }) : null), slider(30, 100, 5, v.fontOpacity, (n) => `${n}%`, (n) => ({ fontOpacity: n }), 'Text opacity', undefined, fixed ? cap?.fontColorNote : undefined), warn, slider(10, 48, 1, v.fontSize, (n) => `${n}px`, (n) => ({ fontSize: n }), 'Text size', flowOnly), row('Typeface', family, undefined, flowOnly), slider(1, 2.5, 0.1, v.lineSpacing, (n) => n.toFixed(1), (n) => ({ lineSpacing: Math.round(n * 10) / 10 }), 'Line spacing', flowOnly), slider(30, 140, 5, v.columnWidth, (n) => `${n} characters`, (n) => ({ columnWidth: n }), 'Line length', flowOnly), row('Alignment', align, undefined, flowOnly), ...(fixed ? [row('PDF colours', pdfMode, 'Recolours the page when it is drawn. Scanned images keep their own colours.')] : []), row('Page layout', layout), h('div', { class: 'row' }, cover, h('label', { text: 'In a two-page spread, show the cover on its own', attrs: { for: cid } })), h('hr'), h('div', { class: 'row' }, docOnly, h('label', { text: 'Apply these changes to this document only', attrs: { for: dId } })), h('div', { class: 'row', style: { marginTop: '10px' } }, button('Reset this document', () => { flush(); void app.resetDocument().then(() => pop.close(), (e) => toast(e instanceof Error ? e.message : 'Could not reset this document.')); }, { cls: 'small', disabled: !session }), button('Reset everything', () => { flush(); void confirmDialog('Reset all settings?', 'This puts every reading setting back to its default, for all documents.', 'Reset', true).then((ok) => { if (ok) {
+        void app.resetEverything().then(() => { pop.close(); toast('Settings reset.'); }, (e) => toast(e instanceof Error ? e.message : 'Could not reset settings.'));
     } }); }, { cls: 'small danger' })));
-    const pop = popover(anchor, body, { label: 'Appearance' });
+    pop = popover(anchor, body, { label: 'Appearance', onClose: flush });
     refreshWarning();
 }
 //# sourceMappingURL=settings.js.map
