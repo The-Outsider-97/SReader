@@ -14,9 +14,10 @@ import http.cookies
 import mimetypes
 import sys
 import traceback
+
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, cast
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from . import api  # noqa: F401  (registers the routes)
@@ -60,13 +61,16 @@ class ReaderHTTPServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server: ReaderHTTPServer
     protocol_version = "HTTP/1.1"
     server_version = "SLAIReader"
     sys_version = ""
 
+    @property
+    def reader_server(self) -> ReaderHTTPServer:
+        return cast(ReaderHTTPServer, self.server)
+
     # ------------------------------------------------------------------ plumbing
-    def log_message(self, fmt: str, *args: Any) -> None:       # quiet: paths of private documents do not belong in a log
+    def log_message(self, format: str, *args: Any) -> None:    # quiet: paths of private documents do not belong in a log
         return
 
     def _send(self, resp: Response) -> None:
@@ -109,16 +113,16 @@ class Handler(BaseHTTPRequestHandler):
         except http.cookies.CookieError:
             return False
         morsel = jar.get(COOKIE)
-        return morsel is not None and hmac.compare_digest(morsel.value.encode(), self.server.app.settings.token.encode())
+        return morsel is not None and hmac.compare_digest(morsel.value.encode(), self.reader_server.app.settings.token.encode())
 
     def _host_ok(self) -> bool:
-        return (self.headers.get("Host") or "").lower() in self.server.allowed_hosts
+        return (self.headers.get("Host") or "").lower() in self.reader_server.allowed_hosts
 
     def _origin_ok(self) -> bool:
         origin = self.headers.get("Origin")
         if origin is None:
             return True
-        return origin.lower() in {f"http://{h}" for h in self.server.allowed_hosts}
+        return origin.lower() in {f"http://{h}" for h in self.reader_server.allowed_hosts}
 
     # ------------------------------------------------------------------ dispatch
     def _handle(self) -> None:
@@ -130,8 +134,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self._error(Unauthorized("This address is not allowed")))
             # token exchange: /?token=...  ->  cookie, then a clean URL
             if path == "/" and "token" in query:
-                if hmac.compare_digest(query["token"].encode(), self.server.app.settings.token.encode()):
-                    cookie = f"{COOKIE}={self.server.app.settings.token}; Path=/; HttpOnly; SameSite=Strict"
+                if hmac.compare_digest(query["token"].encode(), self.reader_server.app.settings.token.encode()):
+                    cookie = f"{COOKIE}={self.reader_server.app.settings.token}; Path=/; HttpOnly; SameSite=Strict"
                     return self._send(Response(302, b"", "text/plain", {"Location": "/", "Set-Cookie": cookie}))
                 return self._send(Response(403, LOCKED_PAGE, "text/html; charset=utf-8"))
             if not self._authorised():
@@ -147,6 +151,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(self._error(exc))
         except (BrokenPipeError, ConnectionResetError):
             pass
+        except OSError as exc:
+            # The temp file stays beside the destination so an atomic rename is normally possible.
+            # WinError 17 can still be raised by an unusual Windows volume/reparse-point setup.
+            # Do not fall back to copy+delete: it could damage a previously valid file.
+            if getattr(exc, 'winerror', None) == 17:
+                message = ('Windows refused the atomic file replacement across volumes. Check the Reader data '
+                           'directory and any junctions or mounted folders; the attempted save did not complete.')
+            else:
+                message = 'Reader could not access its storage. Check available space and write permissions, then try again.'
+            self._send(self._error(ReaderError(message)))
         except Exception:  # noqa: BLE001 - the person gets a plain message; the trace goes to the console
             traceback.print_exc(file=sys.stderr)
             try:
@@ -164,7 +178,7 @@ class Handler(BaseHTTPRequestHandler):
         found = router.match(self.command if self.command != "HEAD" else "GET", path)
         if found is None:
             raise NotFound("There is no such function")
-        if found == "method":
+        if isinstance(found, str):
             raise BadRequest("Method not allowed for this address")
         handler, params, _mutating = found                         # type: ignore[misc]
         try:
@@ -173,8 +187,8 @@ class Handler(BaseHTTPRequestHandler):
             raise BadRequest("Bad Content-Length") from exc
         if length < 0:
             raise BadRequest("Bad Content-Length")
-        req = Request(self.command, path, query, {k.lower(): v for k, v in self.headers.items()}, self.rfile, length or None, params)
-        out = handler(self.server.app, req)
+        req = Request(self.command, path, query, {k.lower(): v for k, v in self.headers.items()}, cast(BinaryIO, self.rfile), length or None, params)
+        out = handler(self.reader_server.app, req)
         if mutating_method and not req._read and length:
             # an unread body would corrupt the next request on this connection
             self.close_connection = True
@@ -182,9 +196,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _static(self, path: str) -> Response:
         rel = "index.html" if path in ("/", "") else path.lstrip("/")
-        target = (self.server.client_dir / rel).resolve()
+        target = (self.reader_server.client_dir / rel).resolve()
         try:
-            target.relative_to(self.server.client_dir)
+            target.relative_to(self.reader_server.client_dir)
         except ValueError:
             raise NotFound("Not found") from None
         if not target.is_file():

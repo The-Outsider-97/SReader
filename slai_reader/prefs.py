@@ -10,6 +10,7 @@ import json
 import os
 import threading
 import time
+
 from pathlib import Path
 from typing import Any
 
@@ -180,7 +181,7 @@ def effective(global_prefs: dict[str, Any], doc_prefs: dict[str, Any] | None, *,
     bg = preset["bg"]
     text = preset["text"] or (0, 0, 0)
     warnings: list[str] = []
-    fg = parse_hex(merged["fontColor"]) if merged.get("fontColor") else text
+    fg = (parse_hex(merged["fontColor"]) or text) if merged.get("fontColor") else text
     eff = merged["fontOpacity"] / 100
     blended = tuple(round(bg[i] + (fg[i] - bg[i]) * eff) for i in range(3))      # opacity blends the text toward the background
     ratio = contrast_ratio(blended, bg)                                          # type: ignore[arg-type]
@@ -230,18 +231,20 @@ class PrefsFile:
     def update(self, patch: Any) -> dict[str, Any]:
         clean = validate(patch)
         with self.lock:
-            self.values.update(clean)
-            self._write()
+            values = {**self.values, **clean}
+            self._write(values)
+            self.values = values
             return self.get()
 
     def reset(self) -> dict[str, Any]:
         with self.lock:
-            self.values = json.loads(json.dumps(DEFAULTS))
-            self._write()
+            values = json.loads(json.dumps(DEFAULTS))
+            self._write(values)
+            self.values = values
             return self.get()
 
-    def _write(self) -> None:
-        payload = {"schema": PREFS_SCHEMA, "values": self.values}
+    def _write(self, values: dict[str, Any]) -> None:
+        payload = {"schema": PREFS_SCHEMA, "values": values}
         atomic_write(self.path, json.dumps(payload, indent=2).encode("utf-8"))
 
 

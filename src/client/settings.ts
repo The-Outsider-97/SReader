@@ -29,15 +29,31 @@ export function openSettings(app: AppearanceHost, anchor: DOMRect): void {
   const cap = session?.payload.capabilities;
   const fixed = session?.fixed ?? false;
   const docOnly = h('input', { attrs: { type: 'checkbox' }, checked: app.docOnly, disabled: !session });
-  docOnly.addEventListener('change', () => { app.docOnly = docOnly.checked; });
   const dId = nextId('doc'); docOnly.id = dId;
 
   let timer = 0;
+  let pending: Partial<Prefs> = {};
+  let pendingDocOnly = app.docOnly && !!session;
+  let pop: ReturnType<typeof popover>;
+  const flush = (): void => {
+    window.clearTimeout(timer);
+    const patch = pending;
+    pending = {};
+    if (!Object.keys(patch).length) return;
+    void app.setAppearance(patch, pendingDocOnly).then(refreshWarning, () => {
+      // Recreate the controls from the last confirmed effective values after a failed save.
+      if (pop.el.isConnected) { pop.close(); openSettings(app, anchor); }
+    });
+  };
   const commit = (patch: Partial<Prefs>, immediate = false): void => {
     window.clearTimeout(timer);
-    const go = (): void => { void app.setAppearance(patch, app.docOnly && !!session).then(refreshWarning); };
-    if (immediate) go(); else timer = window.setTimeout(go, 180);
+    const scope = app.docOnly && !!session;
+    if (Object.keys(pending).length && scope !== pendingDocOnly) flush();
+    pendingDocOnly = scope;
+    pending = { ...pending, ...patch };
+    if (immediate) flush(); else timer = window.setTimeout(flush, 180);
   };
+  docOnly.addEventListener('change', () => { flush(); app.docOnly = docOnly.checked; });
 
   const row = (label: string, control: HTMLElement, note?: string, disabledWhy?: string): HTMLElement => {
     const id = control.id || (control.id = nextId('s'));
@@ -73,6 +89,7 @@ export function openSettings(app: AppearanceHost, anchor: DOMRect): void {
   const warn = h('div', { class: 'banner warn', hidden: true, attrs: { role: 'status' } });
   function refreshWarning(): void {
     const e = state.effective!;
+    if (e.values.fontColor === null) colour.value = e.colors.text;
     const r = readability(e.values.fontColor, e.theme, e.values.fontOpacity);
     warn.hidden = r.level === 'ok';
     warn.textContent = r.message ?? '';
@@ -114,8 +131,8 @@ export function openSettings(app: AppearanceHost, anchor: DOMRect): void {
     h('hr'),
     h('div', { class: 'row' }, docOnly, h('label', { text: 'Apply these changes to this document only', attrs: { for: dId } })),
     h('div', { class: 'row', style: { marginTop: '10px' } },
-      button('Reset this document', () => { void app.resetDocument().then(() => pop.close()); }, { cls: 'small', disabled: !session }),
-      button('Reset everything', () => { void confirmDialog('Reset all settings?', 'This puts every reading setting back to its default, for all documents.', 'Reset', true).then((ok) => { if (ok) { void app.resetEverything().then(() => { pop.close(); toast('Settings reset.'); }); } }); }, { cls: 'small danger' })));
-  const pop = popover(anchor, body, { label: 'Appearance' });
+      button('Reset this document', () => { flush(); void app.resetDocument().then(() => pop.close(), (e: unknown) => toast(e instanceof Error ? e.message : 'Could not reset this document.')); }, { cls: 'small', disabled: !session }),
+      button('Reset everything', () => { flush(); void confirmDialog('Reset all settings?', 'This puts every reading setting back to its default, for all documents.', 'Reset', true).then((ok) => { if (ok) { void app.resetEverything().then(() => { pop.close(); toast('Settings reset.'); }, (e: unknown) => toast(e instanceof Error ? e.message : 'Could not reset settings.')); } }); }, { cls: 'small danger' })));
+  pop = popover(anchor, body, { label: 'Appearance', onClose: flush });
   refreshWarning();
 }
