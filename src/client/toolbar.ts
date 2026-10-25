@@ -6,6 +6,7 @@ import { material, materialButton, changeMaterial, type MaterialName } from './m
 import type { App } from './app.js';
 import type { Tool } from './state.js';
 import { closePopover, popover, swatches } from './ui.js';
+import { handoffDialog, infoDialog, shortcutsDialog } from './dialogs.js';
 
 const TOOLS: Array<{ id: Tool; label: string; icon: string; title: string; keys?: string; needs: 'text' | 'ink' | 'any' }> = [
   { id: 'select', label: 'Select', icon: '↖', title: 'Select text', keys: 'V', needs: 'any' },
@@ -123,13 +124,13 @@ export class Toolbar {
     const menu = h('div', { class: 'menu reader-menu', id: 'reader-actions-menu', attrs: { role: 'menu', 'aria-label': 'Reader actions' } });
     const sections: Array<[string, Array<[string, () => void]>]> = [
       ['File', [['Open document', () => { void app.openDialog(); }], ['Export or import notes', () => app.exportDialog()],
-        ['Document information', () => app.moreMenu(this.menuBtn.getBoundingClientRect())],
+        ['Document information', () => infoDialog(s)],
         ['Reload document', () => { void app.reload(); }], ['Close document', () => { void app.showLibrary(); }]]],
       ['View', [['Reading appearance', () => app.openAppearance(this.menuBtn.getBoundingClientRect())],
         ['Distraction-free mode', () => app.toggleFocus()], ['Fit width', () => app.fit('fit-width')],
         ['Fit page', () => app.fit('fit-page')], ['Reset zoom to 100%', () => app.zoomTo(100)]]],
-      ['Tools', [['Annotation toolbar', () => this.toggleTools()], ['Keyboard shortcuts', () => app.moreMenu(this.menuBtn.getBoundingClientRect())],
-        ['Other document actions', () => app.moreMenu(this.menuBtn.getBoundingClientRect())]]],
+      ['Tools', [['Annotation toolbar', () => this.toggleTools()], ['Keyboard shortcuts', () => shortcutsDialog()],
+        ['Open in Writer or Documaster', () => handoffDialog(s)]]],
     ];
     const pop = popover(this.menuBtn.getBoundingClientRect(), menu, {
       label: 'Reader menu', onClose: () => {
