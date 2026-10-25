@@ -10,8 +10,8 @@ import textwrap
 import threading
 import time
 import unittest
-from pathlib import Path
 
+from pathlib import Path
 from harness import Base, fixtures
 
 from slai_reader.annotations import model
@@ -197,7 +197,7 @@ class StoreTests(Base):
         self.assertEqual(len(s.list("sldc:one")), 120)
 
     def test_kill_nine_during_writes_leaves_a_consistent_store(self):
-        """A writer process is killed with SIGKILL while saving; the store must open cleanly and hold only whole annotations."""
+        """A writer process is forcibly terminated while saving; the store must retain only whole annotations."""
         _, d = self.new_store("kill")
         code = textwrap.dedent(f"""
             import sys, time; sys.path.insert(0, {str(APP)!r})
@@ -217,16 +217,22 @@ class StoreTests(Base):
         acked = 0
         for round_ in range(5):
             proc = subprocess.Popen([sys.executable, "-I", "-c", code, str(round_)], stdout=subprocess.PIPE, text=True)
-            self.addCleanup(proc.stdout.close)
-            self.assertEqual(proc.stdout.readline().strip(), "ready")
-            last = 0
-            deadline = time.time() + 0.15 + 0.07 * round_
-            while time.time() < deadline:
-                line = proc.stdout.readline().strip()
-                if line.isdigit():
-                    last = int(line)
-            os.kill(proc.pid, signal.SIGKILL)
-            proc.wait()
+            try:
+                assert proc.stdout is not None
+                self.assertEqual(proc.stdout.readline().strip(), "ready")
+                last = 0
+                deadline = time.time() + 0.15 + 0.07 * round_
+                while time.time() < deadline:
+                    line = proc.stdout.readline().strip()
+                    if line.isdigit():
+                        last = int(line)
+            finally:
+                # Popen.kill() is SIGKILL on POSIX and TerminateProcess on Windows.
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(timeout=10)
+                assert proc.stdout is not None
+                proc.stdout.close()
             reopened = Store(d / "reader.db", d / "backups")
             try:
                 self.assertEqual(reopened.integrity(), "ok")
