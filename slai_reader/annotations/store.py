@@ -19,6 +19,7 @@ import os
 import sqlite3
 import threading
 import time
+
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -82,11 +83,16 @@ class Store:
     # ------------------------------------------------------------------ opening, migration, recovery
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path), timeout=15.0, isolation_level=None, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=FULL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=FULL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            return conn
+        except BaseException:
+            # A failed PRAGMA (including a corrupt database header) must not leave an open Windows file handle that prevents recovery/quarantine.
+            conn.close()
+            raise
 
     def _open(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -141,8 +147,12 @@ class Store:
                 try:
                     os.replace(src, dst)
                     moved.append(dst.name)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    # Do not silently reopen a known-corrupt database when Windows
+                    # denies its quarantine (e.g. another process holds a lock).
+                    raise StoreCorrupt(
+                        "The damaged annotation database could not be quarantined. Close other Reader instances and retry; no replacement database was created."
+                    ) from exc
         conn = self._connect()
         self._migrate(conn)
         self.conn = conn
