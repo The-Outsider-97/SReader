@@ -58,6 +58,7 @@ export class Toolbar {
     const appearanceBtn = action('text_fields', 'Reading appearance', () => app.openAppearance(appearanceBtn.getBoundingClientRect()));
     this.toolBtn = action('text_fields', 'Show annotation tools', () => this.toggleTools());
     this.toolBtn.setAttribute('aria-controls', 'reader-annotation-toolbar');
+    this.toolBtn.setAttribute('aria-expanded', 'false');
     this.menuBtn = action('menu', 'Open menu', () => this.toggleMenu());
     this.menuBtn.setAttribute('aria-controls', 'reader-actions-menu');
     this.menuBtn.setAttribute('aria-expanded', 'false');
@@ -91,19 +92,23 @@ export class Toolbar {
     const tools = h('div', { class: 'group annotation-tools', attrs: { role: 'group', 'aria-label': 'Annotation tools' } });
     for (const t of TOOLS) {
       const b = button(t.label, () => app.pickTool(t.id), { icon: t.icon, title: t.title, keys: t.keys, pressed: t.id === 'select' });
+      b.querySelector('.ico')?.replaceWith(material(t.id as MaterialName));
       this.tools.set(t.id, b);
       const why = this.unavailable(t.needs);
       if (why) { b.disabled = true; b.title = `${t.title}: ${why}`; }
       tools.appendChild(b);
     }
     const note = button('Note', () => app.noteOnSelection(), { icon: '▤', title: 'Add a note to selected text', disabled: !!this.unavailable('text') });
+    note.querySelector('.ico')?.replaceWith(material('note'));
     tools.appendChild(note);
     this.undoBtn = button('Undo', () => { void s.undo(); }, { icon: '↶', title: 'Undo', keys: 'Ctrl+Z' });
     this.redoBtn = button('Redo', () => { void s.redo(); }, { icon: '↷', title: 'Redo', keys: 'Ctrl+Y' });
+    this.undoBtn.querySelector('.ico')?.replaceWith(material('undo'));
+    this.redoBtn.querySelector('.ico')?.replaceWith(material('redo'));
     this.options = h('div', { class: 'group', attrs: { 'aria-label': 'Tool options', role: 'group' } });
     this.toolRow = h('div', { class: 'reader-tools', id: 'reader-annotation-toolbar', hidden: true },
       tools, g('History', this.undoBtn, this.redoBtn,
-        action('description', 'Bookmark this page', () => { void s.toggleBookmark(); }, 'Ctrl+D')), this.options);
+        action('bookmark', 'Bookmark this page', () => { void s.toggleBookmark(); }, 'Ctrl+D')), this.options);
     this.el.append(primary, this.toolRow);
     this.update();
   }
