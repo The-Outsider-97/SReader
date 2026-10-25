@@ -1,0 +1,109 @@
+{
+  "machine": {
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cores": 2,
+    "memory": "8027 MB",
+    "os": "Linux-6.18.44-fc-v153-x86_64-with-glibc2.39",
+    "python": "3.13.17"
+  },
+  "when": "2026-10-23 13:04:34",
+  "results": {
+    "fixture_big_pdf": {
+      "pages": 400,
+      "bytes": 329550,
+      "built_s": 0.6
+    },
+    "fixture_long_sldc": {
+      "paragraphs": 17000,
+      "bytes": 168302,
+      "built_s": 0.5
+    },
+    "browser": "153.0.8010.12",
+    "pdf_open": {
+      "pages": 400,
+      "ms": 184.3,
+      "payload_kb": 9.3
+    },
+    "pdf_page_image_ms": {
+      "n": 40,
+      "p50": 23.1,
+      "p95": 31.3,
+      "max": 382.9
+    },
+    "pdf_page_text_ms": {
+      "n": 40,
+      "p50": 75.9,
+      "p95": 89.8,
+      "max": 90.1
+    },
+    "pdf_search": {
+      "query": "needle7",
+      "first_call_ms": 12.2,
+      "second_call_ms": 61.8,
+      "hits": 200,
+      "index": {
+        "indexed": 400,
+        "total": 400,
+        "complete": true
+      }
+    },
+    "server_rss_mb": {
+      "before_open": 37.0,
+      "after_open_and_render": 94.5,
+      "after_full_scroll": 173.2,
+      "after_long_sldc": 190.2
+    },
+    "annotations_bulk_create": {
+      "count": 2000,
+      "total_s": 8.95,
+      "per_item_ms": 4.47
+    },
+    "annotations_list": {
+      "count": 2000,
+      "ms": 99.1,
+      "payload_kb": 1449.7
+    },
+    "annotation_single_create_ms (each is an fsync'd SQLite commit)": {
+      "n": 60,
+      "p50": 76.2,
+      "p95": 109,
+      "max": 170.2
+    },
+    "page_marks_ms": {
+      "n": 40,
+      "p50": 232.4,
+      "p95": 315.6,
+      "max": 1664.9
+    },
+    "browser_open_big_pdf_to_first_page_ms": 1000,
+    "browser_scroll_through_whole_pdf": {
+      "steps": 1146,
+      "wall_ms": 19418,
+      "maxDom": 4014,
+      "maxImgs": 5,
+      "heapMB": 13,
+      "frame_ms": {
+        "n": 1146,
+        "p50": 16.7,
+        "p95": 22.7,
+        "max": 63.1
+      },
+      "frames_over_50ms": 1
+    },
+    "browser_open_long_sldc_to_first_text_ms": 1353,
+    "browser_scroll_long_sldc": {
+      "scrolls": 400,
+      "wall_ms": 7201,
+      "maxBlocksInDom": 1400,
+      "maxDom": 4578,
+      "heapMB": 13,
+      "frame_ms": {
+        "n": 400,
+        "p50": 16.7,
+        "p95": 29.7,
+        "max": 56.8
+      },
+      "frames_over_50ms": 11
+    }
+  }
+}

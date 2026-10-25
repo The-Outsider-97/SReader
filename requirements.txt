@@ -1,0 +1,20 @@
+# Python packages used by SLAI Reader (the server itself is standard library only).
+# Install into the SLAI environment:  python -m pip install -r requirements.txt
+#
+# Reader also needs the SLAI checkout it lives in (src/utils/sldc.py, src/agents/reader) and, for DOCX / ODT / HTML / Markdown / RTF /
+# EPUB chapters, Documaster (applications/Documaster) - Reader imports it, it does not copy it. Documaster's own requirements apply too.
+pypdfium2>=5          # draws PDF pages, extracts text and character boxes
+pypdf>=5.9            # PDF structure, writing standard annotations, flattening
+reportlab>=4          # drawing marks into pages for the flattened PDF copy
+Pillow>=10            # page images, SLDC figures
+cryptography>=42      # AES for encrypted PDFs / SLDC (pypdf needs it)
+python-docx>=1.1      # via Documaster, for DOCX
+
+# Tested with Python 3.13 on Linux (pypdf 5.9, pypdfium2 5.13, reportlab 5.0, python-docx 1.2, Pillow 12.3). Not yet run on Windows 11.
+#
+# Optional programs (Reader says what is missing instead of failing silently):
+#   LibreOffice (soffice)   RTF reading
+#
+# Development only:
+#   Node.js 20+ and `npm install` (TypeScript, tsx) to rebuild dist/ and run the TypeScript tests
+#   Playwright + Chromium for tests_e2e (python -m pip install playwright)
