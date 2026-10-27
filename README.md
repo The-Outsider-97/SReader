@@ -25,9 +25,16 @@ python -m slai_reader --handoff reader-to-writer-....json
 | `--data-dir`, `--output-dir` | Library and annotations (default `%LOCALAPPDATA%\SLAI\Reader`), exports (default `Documents\SLAI Reader`). |
 | `--writer-command "..."` | Program that starts SLAI Writer; `{handoff}` is replaced by the hand-off file. Also `SLAI_WRITER_CMD`. |
 | `--allow-network-paths` | Allow files on network shares. Off by default. |
+| `--diagnose-storage` | Checks, step by step, that settings can be saved in the data folder (create, write, flush, replace, replace over an existing file), reports redirected folders and the exact error number of any failing step, then exits. Add `--json` for machine-readable output. It only creates and removes its own probe files. |
 | `--slai-root` | The SLAI checkout. Found automatically from the app's own location. |
 
 Stopping the program with Ctrl+C or `SIGTERM` (Linux, tested) or Ctrl+Break (Windows, not tested) writes a final backup of any pending changes. A hard kill does not.
+
+## If a setting will not save
+
+Reader names what failed instead of guessing: the message and the `storage_*` code say whether the drive is full, the folder is read-only, another program holds the file, the path is unusable, or the folder is a junction or redirected location that Windows will not rename files within. The technical details (step, error number, `winerror`) are printed in Reader's console window; they never include your settings, documents or the access token.
+
+Run `python -m slai_reader --diagnose-storage` (add `--data-dir ...` for a custom folder) to see which step fails on this computer. A Microsoft Store build of Python redirects `%LOCALAPPDATA%`; if the report points there, start Reader with `--data-dir` set to an ordinary folder. See [docs/USER_GUIDE.md](docs/USER_GUIDE.md#when-settings-will-not-save) for the codes.
 
 ## Where things are
 

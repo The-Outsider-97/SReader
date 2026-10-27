@@ -79,19 +79,19 @@ class WorkflowH(E2E):
         pg = self.page
         self.assertEqual(self.unnamed_controls(), [], "library view")
         self.open_pdf()
-        pg.click("button[aria-label='Show or hide the side panel']")
+        self.toggle_side()
         for tab in ("Contents", "Pages", "Notes", "Search"):
             pg.click(f"[role=tab]:text-is('{tab}')")
             pg.wait_for_timeout(300)
             bad = self.unnamed_controls()
             self.assertEqual(self.describe_nodes(bad), [], f"{tab} panel: unnamed controls")
-        pg.click("button[aria-label='Reading mode, text and layout']")
+        self.open_appearance()
         self.assertEqual(self.describe_nodes(self.unnamed_controls()), [], "appearance panel")
         pg.keyboard.press("Escape")
-        pg.click("button[aria-label='Export or import notes']")
+        self.menu_item("Export or import notes")
         self.assertEqual(self.describe_nodes(self.unnamed_controls()), [], "export dialog")
         pg.keyboard.press("Escape")
-        pg.click("button[aria-label='Pen']")
+        self.click_tool("button[aria-label='Pen']")
         self.assertEqual(self.describe_nodes(self.unnamed_controls()), [], "pen options")
 
     def test_landmarks_and_document_semantics(self):
@@ -105,7 +105,7 @@ class WorkflowH(E2E):
         self.assertTrue(pg.locator("[role=status]").count() >= 1, "there is a live region for announcements")
         # the page images carry labels, and the toolbar buttons expose pressed state
         self.assertEqual(pg.locator(".pagehost[data-page='0']").get_attribute("aria-label"), "Page 1 of 4")
-        pg.click("button[aria-label='Pen']")
+        self.click_tool("button[aria-label='Pen']")
         self.assertEqual(pg.locator("button[aria-label='Pen']").get_attribute("aria-pressed"), "true")
         self.assertEqual(pg.locator("button[aria-label='Select text']").get_attribute("aria-pressed"), "false")
 
@@ -113,7 +113,7 @@ class WorkflowH(E2E):
     def test_contrast_in_every_reading_mode(self):
         pg = self.page
         self.open_pdf()
-        pg.click("button[aria-label='Show or hide the side panel']")
+        self.toggle_side()
         pg.click("[role=tab]:text-is('Notes')")
         self.drag_words(5, 9)
         pg.click(".seltoolspop button[aria-label='Add a note to the selection']")
@@ -122,9 +122,7 @@ class WorkflowH(E2E):
         pg.wait_for_selector(".status >> text=1 annotation")
         report = {}
         for name in ("Light", "Sepia", "Dark", "High contrast"):
-            pg.click("button[aria-label='Reading mode, text and layout']")
-            pg.click(f"label:has(strong:text-is('{name}'))")
-            pg.keyboard.press("Escape")
+            self.choose_mode(name)
             pg.wait_for_timeout(400)
             failures = pg.evaluate(CONTRAST_JS)
             report[name] = failures
@@ -136,9 +134,7 @@ class WorkflowH(E2E):
         pg.wait_for_selector("#view .b .txt")
         report = {}
         for name in ("Light", "Sepia", "Dark", "High contrast"):
-            pg.click("button[aria-label='Reading mode, text and layout']")
-            pg.click(f"label:has(strong:text-is('{name}'))")
-            pg.keyboard.press("Escape")
+            self.choose_mode(name)
             pg.wait_for_timeout(400)
             report[name] = pg.evaluate(CONTRAST_JS.replace("closest('.pagehost, .textlayer, svg, [aria-hidden=\"true\"]')", "closest('svg, [aria-hidden=\"true\"]')"))
         self.assertEqual(report, {k: [] for k in report}, "text below WCAG AA contrast")
@@ -158,7 +154,10 @@ class WorkflowH(E2E):
         self.assertEqual(pg.evaluate("document.activeElement.id"), "view")
         pg.keyboard.press("Control+=")
         pg.wait_for_timeout(300)
-        # every control is reachable with Tab, and focus is always visible
+        # every control is reachable with Tab, and focus is always visible. The annotation tools and the side panel are opened first:
+        # they are collapsed by design, and the toggles that open them are themselves tab stops.
+        self.show_tools()
+        self.toggle_side()
         pg.focus(".toolbar button")
         seen, invisible = [], []
         for _ in range(80):
@@ -177,7 +176,10 @@ class WorkflowH(E2E):
     def test_dialog_traps_focus_and_returns_it(self):
         pg = self.page
         self.open_pdf()
-        pg.focus("button[aria-label='Export or import notes']")
+        pg.focus(".toolbar button[aria-label='Open menu']")
+        pg.keyboard.press("Enter")                                     # the actions menu, then the item, all from the keyboard
+        pg.wait_for_selector("[role=menuitem]:text-is('Export or import notes')")
+        pg.focus("[role=menuitem]:text-is('Export or import notes')")
         pg.keyboard.press("Enter")
         pg.wait_for_selector(".dialog")
         inside = []
@@ -187,17 +189,17 @@ class WorkflowH(E2E):
         self.assertTrue(all(inside), "Tab must stay inside an open dialog")
         pg.keyboard.press("Escape")
         pg.wait_for_selector(".dialog", state="detached")
-        self.assertEqual(pg.evaluate("document.activeElement.getAttribute('aria-label')"), "Export or import notes", "focus goes back to where it was")
+        self.assertEqual(pg.evaluate("document.activeElement.getAttribute('aria-label')"), "Open menu", "focus goes back to the control that opened the menu")
 
     def test_popover_escape_returns_focus(self):
         pg = self.page
         self.open_pdf()
-        pg.focus("button[aria-label='Reading mode, text and layout']")
+        pg.focus(".toolbar button[aria-label='Reading appearance']")
         pg.keyboard.press("Enter")
         pg.wait_for_selector(".popover")
         pg.keyboard.press("Escape")
         pg.wait_for_selector(".popover", state="detached")
-        self.assertEqual(pg.evaluate("document.activeElement.getAttribute('aria-label')"), "Reading mode, text and layout")
+        self.assertEqual(pg.evaluate("document.activeElement.getAttribute('aria-label')"), "Reading appearance")
 
     def test_selecting_and_marking_text_without_a_mouse(self):
         for kind in ("sldc", "pdf"):
@@ -242,7 +244,7 @@ class WorkflowH(E2E):
         pg = self.page
         pg.emulate_media(reduced_motion="reduce")
         self.open_pdf()
-        pg.click("button[aria-label='Show or hide the side panel']")
+        self.toggle_side()
         durations = pg.evaluate("""() => [...document.querySelectorAll('*')].map((e) => getComputedStyle(e)).filter((c) => parseFloat(c.animationDuration) > 0.05 && c.animationName !== 'none').length""")
         self.assertEqual(durations, 0, "no animation runs when the person asked for reduced motion")
         pg.emulate_media(reduced_motion="no-preference", forced_colors="active")

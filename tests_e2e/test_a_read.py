@@ -47,24 +47,20 @@ class WorkflowA(E2E):
         # reading modes are real colour schemes, not inversions: check what the page and the app actually paint
         seen = {}
         for name in ("Light", "Sepia", "Dark", "High contrast"):
-            pg.click("button:has-text('Appearance')")
-            pg.click(f"label:has(strong:text-is('{name}'))")
-            pg.keyboard.press("Escape")
+            self.choose_mode(name)
             pg.wait_for_timeout(350)
             seen[name] = pg.evaluate("() => [document.documentElement.dataset.theme, getComputedStyle(document.body).backgroundColor, getComputedStyle(document.querySelector('.main')).backgroundColor]")
             if name in ("Light", "Dark"):
                 self.shot(f"A2_theme_{name.lower().replace(' ', '_')}")
         self.assertEqual(len({v[0] for v in seen.values()}), 4, seen)
         self.assertEqual(len({v[1] for v in seen.values()}), 4, f"each mode paints its own background: {seen}")
-        pg.click("button:has-text('Appearance')")
-        pg.click("label:has(strong:text-is('Light'))")
-        pg.keyboard.press("Escape")
+        self.choose_mode("Light")
 
         # go to page 5 with the page box, then leave and come back: the position is remembered
         pg.fill("input[aria-label='Go to page']", "5"); pg.press("input[aria-label='Go to page']", "Enter")
         pg.wait_for_selector(".status >> text=Page 5 of 8")
         pg.wait_for_timeout(1500)                                              # the position is saved a moment after you stop scrolling
-        pg.click("button:has-text('Library')")
+        pg.click(".toolbar button[aria-label='Back to library']")
         pg.wait_for_selector("input[aria-label='Full path of a file to open']")
         self.shot("A3_library_with_recent")
         self.open_from_library("Fixture PDF")

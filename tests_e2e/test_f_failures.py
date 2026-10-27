@@ -36,7 +36,7 @@ class WorkflowF(E2E):
         blob = b"".join(p.read_bytes() for p in (self.tmp / "data").rglob("*") if p.is_file())
         self.assertNotIn(b"open-sesame", blob)
         # cancelling the prompt leaves the library usable
-        pg.click("button:has-text('Library')")
+        pg.click(".toolbar button[aria-label='Back to library']")
         pg.wait_for_selector("input[aria-label='Full path of a file to open']")
 
     def test_cancel_password_prompt(self):
@@ -53,7 +53,7 @@ class WorkflowF(E2E):
     def test_scanned_pdf_is_honest_about_text_but_still_annotatable(self):
         pg = self.page
         self.open(fx.make_scanned_pdf(self.docs / "scan.pdf", pages=2))
-        pg.click("button[aria-label='Show or hide the side panel']")
+        self.toggle_side()
         pg.click("[role=tab]:text-is('Search')")
         pg.fill("input[aria-label='Search in this document']", "anything")
         pg.wait_for_selector("#search-status:has-text('scan')")
@@ -61,7 +61,7 @@ class WorkflowF(E2E):
         self.assertTrue(pg.locator(".toolbar button[aria-label='Highlight text']").is_disabled())
         self.assertIn("scanned PDF", pg.locator(".toolbar button[aria-label^='Highlight text']").get_attribute("title"))
         # drawing, sticky notes and bookmarks work without a text layer
-        pg.click(".toolbar button[aria-label='Pen']")
+        self.click_tool("button[aria-label='Pen']")
         b = pg.locator(".pagehost[data-page='0']").bounding_box()
         pg.mouse.move(b["x"] + 200, b["y"] + 200); pg.mouse.down(); pg.mouse.move(b["x"] + 400, b["y"] + 260, steps=12); pg.mouse.up()
         pg.wait_for_selector(".status >> text=1 annotation")
@@ -131,7 +131,7 @@ class WorkflowF(E2E):
         self.drag_words(5, 9)
         pg.click(".seltoolspop button[aria-label='Highlight colour #facc15']")
         pg.wait_for_selector(".status >> text=1 annotation")
-        pg.click("button:has-text('Library')")
+        pg.click(".toolbar button[aria-label='Back to library']")
         new_home = self.tmp / "elsewhere"
         new_home.mkdir()
         shutil.move(str(pdf), str(new_home / "renamed copy.pdf"))

@@ -141,6 +141,44 @@ class E2E(unittest.TestCase):
         self.page.wait_for_selector(".toolbar", timeout=15000)
         self.page.wait_for_selector(".status [role=status]:not(:empty)", timeout=15000)
 
+    # ---------------------------------------------------------------- the reading header (v2.4 layout)
+    def show_tools(self) -> None:
+        """The annotation tools sit behind a toggle in the header; open them if they are not showing."""
+        pg = self.page
+        if not pg.locator("#reader-annotation-toolbar").is_visible():
+            pg.click(".toolbar button[aria-label='Show annotation tools']")
+            pg.wait_for_selector("#reader-annotation-toolbar", state="visible")
+
+    def click_tool(self, selector: str) -> None:
+        self.show_tools()
+        self.page.click(f".toolbar {selector}")
+
+    def toggle_side(self) -> None:
+        """Flip the side panel and wait until the edge toggle reports the new state (the panel slides, so do not race it)."""
+        pg = self.page
+        before = pg.get_attribute("button.side-edge-toggle", "aria-expanded")
+        pg.click("button.side-edge-toggle")
+        pg.wait_for_function("(b) => document.querySelector('button.side-edge-toggle').getAttribute('aria-expanded') !== b", arg=before)
+
+    def open_appearance(self) -> None:
+        pg = self.page
+        if pg.locator(".toolbar button[aria-label='Reading appearance']").is_visible():
+            pg.click(".toolbar button[aria-label='Reading appearance']")
+        else:
+            self.menu_item("Reading appearance")
+        pg.wait_for_selector(".appearance")
+
+    def choose_mode(self, name: str) -> None:
+        """Open the appearance panel, pick a reading mode, close the panel."""
+        self.open_appearance()
+        self.page.click(f".appearance label.mode:has(strong:text-is('{name}'))")
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_selector(".appearance", state="detached")
+
+    def menu_item(self, label: str) -> None:
+        self.page.click(".toolbar button[aria-label='Open menu']")
+        self.page.click(f"[role=menuitem]:text-is('{label}')")
+
     def focus_view(self) -> None:
         self.page.focus("#view")
 

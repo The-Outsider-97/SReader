@@ -28,13 +28,13 @@ class WorkflowB(E2E):
         expect(pg.locator(".pagehost[data-page='0'] .markslayer > *")).not_to_have_count(0)
 
         # underline and strike-through with the toolbar tools (the tool stays on, like a marker pen)
-        pg.click(".toolbar button[aria-label='Underline text']")
+        self.click_tool("button[aria-label='Underline text']")
         self.drag_words(12, 14, 0)                                     # a later word run on line 2
         pg.wait_for_selector(".status >> text=2 annotations")
-        pg.click(".toolbar button[aria-label='Strike through text']")
+        self.click_tool("button[aria-label='Strike through text']")
         self.drag_words(25, 27, 0)
         pg.wait_for_selector(".status >> text=3 annotations")
-        pg.click(".toolbar button[aria-label='Select text']")
+        self.click_tool("button[aria-label='Select text']")
         self.assertEqual({r["kind"] for r in self.rows()}, {"highlight", "underline", "strike"})
 
         # a note on selected text: the selection popover -> Note -> write -> Ctrl+Enter
@@ -51,7 +51,7 @@ class WorkflowB(E2E):
         self.shot("B1_four_annotations")
 
         # the notes panel lists them in reading order and filters work
-        pg.click("button[aria-label='Show or hide the side panel']")
+        self.toggle_side()
         pg.click("[role=tab]:has-text('Notes')")
         expect(pg.locator(".side .ann")).to_have_count(4)
         pg.fill("input[aria-label='Filter annotations']", "claim")
@@ -100,7 +100,7 @@ class WorkflowB(E2E):
         self.drag_words(5, 9)
         pg.click(".seltoolspop button[aria-label='Highlight colour #facc15']")
         pg.wait_for_selector(".status >> text=1 annotation")
-        pg.click("button[aria-label='Show or hide the side panel']")
+        self.toggle_side()
         pg.click("[role=tab]:has-text('Notes')")
         pg.click(".side .ann button:has-text('Edit')")
         pg.click(".popover button[aria-label$='#f9a8d4']")

@@ -17,7 +17,7 @@ class WorkflowD(E2E):
     def side(self, tab: str) -> None:
         pg = self.page
         if not pg.locator(".side").is_visible():
-            pg.click("button[aria-label='Show or hide the side panel']")
+            self.toggle_side()
         pg.click(f"[role=tab]:text-is('{tab}')")
 
     def test_contents_pages_and_goto(self):
@@ -89,7 +89,7 @@ class WorkflowD(E2E):
         self.side("Search")
         pg.fill("input[aria-label='Search in this document']", "zebrafish")
         pg.wait_for_selector("#search-notes >> text=Zebrafish protocol reminder")
-        pg.click("button:has-text('Library')")
+        pg.click(".toolbar button[aria-label='Back to library']")
         pg.fill("input[aria-label^='Search titles, notes']", "zebrafish")
         pg.wait_for_selector("text=Zebrafish protocol reminder")
         self.shot("D3_library_search")

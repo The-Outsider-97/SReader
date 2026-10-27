@@ -40,14 +40,14 @@ class WorkflowE(E2E):
         self.assertEqual(len(self.rows("bookmark")), 1)
 
         # a drawing in a text document belongs to the paragraph it starts in
-        pg.click(".toolbar button[aria-label='Pen']")
+        self.click_tool("button[aria-label='Pen']")
         a = pg.locator("#view .b[data-n='8']").bounding_box()
         pg.mouse.move(a["x"] + 40, a["y"] + 20); pg.mouse.down(); pg.mouse.move(a["x"] + 200, a["y"] + 50, steps=15); pg.mouse.up()
         pg.wait_for_timeout(600)
         ink = self.rows("ink")
         self.assertEqual(len(ink), 1)
         self.assertEqual(ink[0]["anchor"]["kind"], "block")
-        pg.click(".toolbar button[aria-label='Select text']")
+        self.click_tool("button[aria-label='Select text']")
 
         # restart everything; reopen; the marks are back on the same words
         self.svc.restart()
@@ -95,7 +95,7 @@ class WorkflowE(E2E):
         pg.wait_for_selector(".banner:has-text('changed')", timeout=25000)
         pg.click(".banner button:has-text('Reload')")
         pg.wait_for_selector(".status >> text=1 annotation")
-        pg.click("button[aria-label='Show or hide the side panel']")
+        self.toggle_side()
         pg.click("[role=tab]:text-is('Notes')")
         chips = pg.locator(".side .ann .chip").all_inner_texts()
         shown = pg.evaluate("() => [...document.querySelectorAll('#view .mark')].map(e => e.textContent).join('')")
@@ -157,7 +157,7 @@ class WorkflowE(E2E):
     def test_epub_contents_panel(self):
         pg = self.page
         self.open(fx.make_epub(self.docs / "book.epub", chapters=4))
-        pg.click("button[aria-label='Show or hide the side panel']")
+        self.toggle_side()
         pg.click("[role=tab]:text-is('Contents')")
         pg.wait_for_selector(".outline button.item")
         n = pg.locator(".outline button.item").count()
@@ -174,7 +174,7 @@ class WorkflowE(E2E):
         pg.wait_for_selector("#view .b[data-n='1'] .txt")
         size = lambda: pg.eval_on_selector("#view .b[data-n='1'] .txt", "e => parseFloat(getComputedStyle(e).fontSize)")  # noqa: E731
         base = size()
-        pg.click("button[aria-label='Reading mode, text and layout']")
+        self.open_appearance()
         slider = pg.get_by_label("Text size")
         slider.evaluate("e => { e.value = '30'; e.dispatchEvent(new Event('input', {bubbles: true})); }")
         pg.wait_for_function if False else pg.wait_for_timeout(700)
@@ -184,14 +184,10 @@ class WorkflowE(E2E):
         pg.wait_for_selector(".status >> text=110%")
         pg.fill("input[aria-label^='Zoom percent']", "100"); pg.press("input[aria-label^='Zoom percent']", "Enter")
         # the other reading modes change real colours on the text and the page
-        pg.click("button[aria-label='Reading mode, text and layout']")
-        pg.click("label:has(strong:text-is('Sepia'))")
-        pg.keyboard.press("Escape")
+        self.choose_mode("Sepia")
         pg.wait_for_timeout(400)
         sepia = pg.eval_on_selector("#view .flow", "e => [getComputedStyle(e).backgroundColor, getComputedStyle(e).color]")
-        pg.click("button[aria-label='Reading mode, text and layout']")
-        pg.click("label:has(strong:text-is('Dark'))")
-        pg.keyboard.press("Escape")
+        self.choose_mode("Dark")
         pg.wait_for_timeout(400)
         dark = pg.eval_on_selector("#view .flow", "e => [getComputedStyle(e).backgroundColor, getComputedStyle(e).color]")
         self.assertNotEqual(sepia, dark)

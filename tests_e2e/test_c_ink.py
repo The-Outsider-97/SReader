@@ -43,7 +43,7 @@ class WorkflowC(E2E):
     def test_pen_pencil_marker_eraser_move_undo(self):
         pg = self.page
         for tool, y in (("Pen", 160), ("Pencil", 260), ("Marker", 360)):
-            pg.click(f".toolbar button[aria-label='{tool if tool != 'Marker' else 'Highlighter pen'}']")
+            self.click_tool(f"button[aria-label='{tool if tool != 'Marker' else 'Highlighter pen'}']")
             self.draw(0.2, y)
         rows = self.ink()
         self.assertEqual(len(rows), 3)
@@ -68,7 +68,7 @@ class WorkflowC(E2E):
         pg.wait_for_selector(".status span.num:last-child:not(:has-text('250%'))")
 
         # erase the pen stroke (whole-stroke eraser), then undo
-        pg.click(".toolbar button[aria-label^='Eraser']")
+        self.click_tool("button[aria-label^='Eraser']")
         b = self.host_box()
         pen = [r for r in rows if r["style"]["tool"] == "pen"][0]
         x0, y0, x1, y1 = self.bbox(pen)
@@ -86,7 +86,7 @@ class WorkflowC(E2E):
         # select and move the pencil stroke 120 px right and 80 px down
         pencil = [r for r in rows if r["style"]["tool"] == "pencil"][0]
         ox0, oy0, ox1, oy1 = self.bbox(pencil)
-        pg.click(".toolbar button[aria-label^='Select and move']")
+        self.click_tool("button[aria-label^='Select and move']")
         b = self.host_box()
         # grab the stroke at the middle of its path
         mid = pencil["geometry"]["points"][len(pencil["geometry"]["points"]) // 2]
@@ -109,7 +109,7 @@ class WorkflowC(E2E):
 
         # a move cannot push a drawing off the page
         pg.keyboard.press("Escape")
-        pg.click(".toolbar button[aria-label^='Select and move']")
+        self.click_tool("button[aria-label^='Select and move']")
         b = self.host_box()
         pg.mouse.move(gx, gy); pg.mouse.down(); pg.mouse.move(gx + 5000, gy, steps=10); pg.mouse.up()
         pg.wait_for_timeout(600)
@@ -117,8 +117,8 @@ class WorkflowC(E2E):
         self.assertLessEqual(self.bbox(edge)[2], 1.0001)
 
         # the notes panel counts drawings
-        pg.click(".toolbar button[aria-label='Select text']")
-        pg.click("button[aria-label='Show or hide the side panel']")
+        self.click_tool("button[aria-label='Select text']")
+        self.toggle_side()
         pg.click("[role=tab]:has-text('Notes')")
         pg.click(".filters button:has-text('Drawings')")
         expect(pg.locator(".side .ann")).to_have_count(1)                  # strokes drawn together are listed as one piece of handwriting
@@ -127,7 +127,7 @@ class WorkflowC(E2E):
 
     def test_sticky_note_and_bookmark(self):
         pg = self.page
-        pg.click(".toolbar button[aria-label^='Place a sticky note']")
+        self.click_tool("button[aria-label^='Place a sticky note']")
         b = self.host_box()
         pg.mouse.click(b["x"] + b["width"] * 0.8, b["y"] + 300)
         pg.fill("textarea[aria-label='Sticky note text']", "Ask the author about this figure.")
