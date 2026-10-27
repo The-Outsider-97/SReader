@@ -253,6 +253,13 @@ def position(app: ReaderApp, req: Request) -> Response:
     return ok({"saved": True})
 
 
+@route("GET", "/api/doc/{sid}/prefs")
+def doc_prefs_get(app: ReaderApp, req: Request) -> Response:
+    """The confirmed settings, read without writing anything (the client uses it to recover after a failed save)."""
+    state = app.sessions.reading_state(_session(app, req), _dark(req))
+    return ok({"values": app.prefs.get(), "docPrefs": state["docPrefs"], "effective": state["effective"]})
+
+
 @route("PUT", "/api/doc/{sid}/prefs")
 def doc_prefs(app: ReaderApp, req: Request) -> Response:
     body = req.json()

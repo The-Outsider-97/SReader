@@ -219,6 +219,8 @@ class FlowDocument(OpenDocument):
                 v[key] = b[key]
         if "table" in b:
             v["table"] = b["table"]
+        if "equation" in b:
+            v["equation"] = b["equation"]
         if "figure" in b:
             v["figure"] = {**b["figure"], "url": f"asset/{b['figure']['asset']}"}
         if "embed" in b:

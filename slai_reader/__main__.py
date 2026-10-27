@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--agents", choices=("auto", "none", "strict"), default=None, help="optional assistant: auto (default), none (never use agents), strict")
     p.add_argument("--allow-network-paths", action="store_true", help="allow opening files from network shares (UNC paths)")
     p.add_argument("--writer-command", help="command that starts SLAI Writer; {handoff} is replaced by the handoff file")
+    p.add_argument("--diagnose-storage", action="store_true", help="check, step by step, that settings can be saved in the data folder, then exit (add --json for machine-readable output)")
+    p.add_argument("--json", action="store_true", help="with --diagnose-storage: print the report as JSON")
     p.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     p.add_argument("--token", help="fixed access token (for tests; random by default)")
     p.add_argument("--client-dir", help="folder with the built web client")
@@ -50,6 +52,13 @@ def main(argv: list[str] | None = None) -> int:
         s.writer_command = args.writer_command
     s.allow_network_paths = args.allow_network_paths
     s.open_browser = not args.no_browser
+
+    if args.diagnose_storage:
+        import json as _json
+        from .diagnose import diagnose, format_report
+        report = diagnose(s.data_dir)
+        print(_json.dumps(report, indent=2, default=str) if args.json else format_report(report))
+        return 0 if report["ok"] else 1
 
     from .errors import ReaderError
     from .app import ReaderApp

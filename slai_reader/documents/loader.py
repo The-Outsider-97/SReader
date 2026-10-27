@@ -83,7 +83,7 @@ def _open_sldc(path: Path, fingerprint: str, size: int, password: str | None, se
     if len(s.extract_text(package, validate=False)) > settings.max_text_chars:
         raise LimitExceeded("This document has more text than the configured limit")
     doc = FlowDocument(package, fmt="sldc", path=path, fingerprint=fingerprint, size=size, backend="SLDC (src.utils.sldc)",
-                       warnings=warnings, features=["blocks", "styles", "sections", "tables", "figures", "references", "comments", "revisions"])
+                       warnings=warnings, features=["blocks", "styles", "sections", "tables", "figures", "equations", "references", "comments", "revisions"])
     doc.encrypted = report["container"] == "encrypted"
     return doc
 

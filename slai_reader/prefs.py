@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 import time
 
@@ -204,25 +205,52 @@ class PrefsFile:
         self.recovered: str | None = None
         self._load()
 
+    def _read_values(self, path: Path) -> dict[str, Any]:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("not an object")
+        if raw.get("schema", 1) > PREFS_SCHEMA:
+            # written by a newer Reader: use what we understand, never overwrite their file until the person changes something
+            self.recovered = "These settings were saved by a newer SLAI Reader; settings this version does not know are ignored."
+        return _lenient(raw.get("values", {}))
+
     def _load(self) -> None:
         stored: dict[str, Any] = {}
+        backup = self.path.with_name(self.path.name + ".bak")
         if self.path.exists():
             try:
-                raw = json.loads(self.path.read_text(encoding="utf-8"))
-                if not isinstance(raw, dict):
-                    raise ValueError("not an object")
-                if raw.get("schema", 1) > PREFS_SCHEMA:
-                    # written by a newer Reader: use what we understand, never overwrite their file until the person changes something
-                    self.recovered = "These settings were saved by a newer SLAI Reader; settings this version does not know are ignored."
-                stored = _lenient(raw.get("values", {}))
+                stored = self._read_values(self.path)
             except (OSError, ValueError) as exc:
                 stamp = time.strftime("%Y%m%d-%H%M%S")
                 try:
                     os.replace(self.path, self.path.with_name(self.path.name + f".corrupt-{stamp}"))
                 except OSError:
                     pass
-                self.recovered = f"The settings file was damaged ({str(exc)[:80]}); it was kept aside and defaults are in use."
+                restored = self._restore_backup(backup)
+                if restored is not None:
+                    stored = restored
+                    self.recovered = "The settings file was damaged; your previous settings were restored from the backup."
+                else:
+                    self.recovered = f"The settings file was damaged ({str(exc)[:80]}); it was kept aside and defaults are in use."
+        elif backup.exists():
+            # A save that wrote in place was interrupted before the new file was complete: the backup holds the last good settings.
+            restored = self._restore_backup(backup)
+            if restored is not None:
+                stored = restored
+                self.recovered = "Reader was closed in the middle of saving settings; your previous settings were restored."
         self.values = {**json.loads(json.dumps(DEFAULTS)), **stored}
+
+    def _restore_backup(self, backup: Path) -> dict[str, Any] | None:
+        try:
+            values = self._read_values(backup)
+        except (OSError, ValueError):
+            return None
+        try:
+            shutil.copyfile(backup, self.path)
+            backup.unlink()
+        except OSError:
+            pass                                                   # the values are still used; the next save rewrites the file
+        return values
 
     def get(self) -> dict[str, Any]:
         with self.lock:
@@ -245,7 +273,7 @@ class PrefsFile:
 
     def _write(self, values: dict[str, Any]) -> None:
         payload = {"schema": PREFS_SCHEMA, "values": values}
-        atomic_write(self.path, json.dumps(payload, indent=2).encode("utf-8"))
+        atomic_write(self.path, json.dumps(payload, indent=2).encode("utf-8"), label="your settings", inplace_fallback=True)
 
 
 def clean_doc_prefs(patch: Any) -> dict[str, Any]:

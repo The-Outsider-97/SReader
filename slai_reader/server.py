@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import hmac
 import http.cookies
+import json
 import mimetypes
+import sqlite3
 import sys
 import traceback
 
@@ -22,7 +24,8 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 from . import api  # noqa: F401  (registers the routes)
 from .app import ReaderApp
-from .errors import BadRequest, NotFound, ReaderError, Unauthorized
+from .errors import BadRequest, NotFound, ReaderError, StorageError, Unauthorized
+from .files import classify_oserror, classify_sqlite
 from .router import Request, Response, router
 
 COOKIE = "slai_reader_token"
@@ -148,25 +151,34 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self._error(BadRequest("Method not allowed")))
             return self._send(self._static(path))
         except ReaderError as exc:
+            if isinstance(exc, StorageError):
+                self._log_storage(exc)
             self._send(self._error(exc))
         except (BrokenPipeError, ConnectionResetError):
             pass
         except OSError as exc:
-            # The temp file stays beside the destination so an atomic rename is normally possible.
-            # WinError 17 can still be raised by an unusual Windows volume/reparse-point setup.
-            # Do not fall back to copy+delete: it could damage a previously valid file.
-            if getattr(exc, 'winerror', None) == 17:
-                message = ('Windows refused the atomic file replacement across volumes. Check the Reader data '
-                           'directory and any junctions or mounted folders; the attempted save did not complete.')
-            else:
-                message = 'Reader could not access its storage. Check available space and write permissions, then try again.'
-            self._send(self._error(ReaderError(message)))
+            # An OS error from somewhere that does not classify its own (the library, an export): report what actually failed,
+            # by its real error number, instead of guessing at one cause.
+            storage = classify_oserror(exc, "storage", getattr(exc, "filename", None) or self.reader_server.app.settings.data_dir)
+            self._log_storage(storage, exc)
+            self._send(self._error(storage))
+        except sqlite3.Error as exc:
+            storage = classify_sqlite(exc, self.reader_server.app.settings.data_dir)
+            self._log_storage(storage, exc)
+            self._send(self._error(storage))
         except Exception:  # noqa: BLE001 - the person gets a plain message; the trace goes to the console
             traceback.print_exc(file=sys.stderr)
             try:
                 self._send(self._error(ReaderError("Something went wrong inside Reader. The details are in its console window.")))
             except Exception:  # noqa: BLE001
                 pass
+
+    def _log_storage(self, error: StorageError, cause: BaseException | None = None) -> None:
+        """One console line with the technical facts (no file contents, no tokens), so a failed save can be diagnosed."""
+        try:
+            print(f"[reader] storage error {error.code}: {json.dumps(error.details, default=str)}", file=sys.stderr, flush=True)
+        except Exception:  # noqa: BLE001 - logging must never mask the real failure
+            pass
 
     def _api(self, path: str, query: dict[str, str]) -> Response:
         mutating_method = self.command in ("POST", "PUT", "PATCH", "DELETE")
