@@ -18,21 +18,41 @@ export function closePopover(): void { current?.close(); }
 export function popoverOpen(): boolean { return current !== null; }
 
 /** A small panel next to a rectangle on screen. Only one is open at a time. */
-export function popover(anchor: DOMRect, content: HTMLElement, opts: { label: string; cls?: string; onClose?: () => void; keepFocus?: boolean } = { label: '' }): Closable {
+export function popover(anchor: DOMRect, content: HTMLElement, opts: { label: string; cls?: string; onClose?: () => void; keepFocus?: boolean; initialFocus?: () => HTMLElement | null | undefined } = { label: '' }): Closable {
   closePopover();
   const opener = document.activeElement as HTMLElement | null;
   const el = h('div', { class: `popover ${opts.cls ?? ''}`.trim(), attrs: { role: 'dialog', 'aria-label': opts.label } }, content);
   layer().appendChild(el);
   const place = (): void => {
+    // Prefer opening below the anchor and shrink to fit; open above only when there is clearly more room there.
+    const below = window.innerHeight - anchor.bottom - 16;
+    const above = anchor.top - 16;
+    el.style.maxHeight = '';
+    const natural = el.offsetHeight;
+    const useBelow = natural <= below || below >= above || below >= 360;
+    if (natural > (useBelow ? below : above)) el.style.maxHeight = `${Math.max(160, Math.floor(useBelow ? below : above))}px`;
     const w = el.offsetWidth; const hgt = el.offsetHeight;
     let left = anchor.left + anchor.width / 2 - w / 2;
-    let top = anchor.bottom + 8;
-    if (top + hgt > window.innerHeight - 8) top = Math.max(8, anchor.top - hgt - 8);
+    let top = useBelow ? anchor.bottom + 8 : anchor.top - hgt - 8;
+    top = Math.max(8, Math.min(top, window.innerHeight - hgt - 8));
     left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
     el.style.left = `${Math.round(left)}px`; el.style.top = `${Math.round(top)}px`;
   };
   place();
-  const onDown = (ev: PointerEvent): void => { if (!el.contains(ev.target as Node)) api.close(); };
+  const onResize = (): void => place();
+  window.addEventListener('resize', onResize);
+  // A click that dismisses the panel must do nothing else: it must not start a stroke, a selection or a click on the page beneath.
+  const swallow = (ev: Event): void => { ev.preventDefault(); ev.stopPropagation(); };
+  const onDown = (ev: PointerEvent): void => {
+    if (el.contains(ev.target as Node)) return;
+    const onPage = !!(ev.target as Element | null)?.closest?.('.view');
+    api.close();
+    if (!onPage) return;
+    swallow(ev);
+    const quiet = (e: Event): void => swallow(e);
+    for (const type of ['mousedown', 'mouseup', 'click', 'pointerup', 'touchstart']) document.addEventListener(type, quiet, { capture: true, once: true });
+    window.setTimeout(() => { for (const type of ['mousedown', 'mouseup', 'click', 'pointerup', 'touchstart']) document.removeEventListener(type, quiet, true); }, 400);
+  };
   const onKey = (ev: KeyboardEvent): void => { if (ev.key === 'Escape') { ev.stopPropagation(); api.close(); } };
   window.setTimeout(() => document.addEventListener('pointerdown', onDown, true), 0);
   document.addEventListener('keydown', onKey, true);
@@ -41,6 +61,7 @@ export function popover(anchor: DOMRect, content: HTMLElement, opts: { label: st
     close() {
       document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('resize', onResize);
       el.remove();
       if (current === api) current = null;
       api.onClose?.();
@@ -48,7 +69,8 @@ export function popover(anchor: DOMRect, content: HTMLElement, opts: { label: st
     },
   };
   current = api;
-  if (!opts.keepFocus) (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus({ preventScroll: true });
+  if (opts.initialFocus) (opts.initialFocus() ?? el).focus({ preventScroll: true });
+  else if (!opts.keepFocus) (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus({ preventScroll: true });
   return api;
 }
 

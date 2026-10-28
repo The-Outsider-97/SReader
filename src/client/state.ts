@@ -17,7 +17,7 @@ export class Emitter<E extends string> {
   emit(event: E): void { for (const fn of [...(this.map.get(event) ?? [])]) fn(); }
 }
 
-export type StateEvent = 'prefs' | 'doc' | 'annotations' | 'tool' | 'side' | 'library' | 'view' | 'status';
+export type StateEvent = 'prefs' | 'doc' | 'annotations' | 'tool' | 'side' | 'library' | 'view' | 'status' | 'appearance';
 
 export class AppState extends Emitter<StateEvent> {
   api: Api;

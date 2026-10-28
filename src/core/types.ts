@@ -68,12 +68,21 @@ export interface DocPayload {
   arrived?: { landing: Location | null; selection: { status: AnchorStatus; segments: TextSegment[]; text: string } | null; notes: string[] };
 }
 
+export interface GraphSeries { id: string; latex: string | null; expression: string | null; type: string; color: string | null; dash: 'solid' | 'dash' | 'dot' | 'dashdot' }
+export interface GraphView {
+  error?: string; id?: string | null; kind?: string; series?: GraphSeries[]; skipped?: number; note?: string;
+  image?: { width: number | null; height: number | null; transparent: boolean } | null;
+}
+
 export interface FlowBlock {
   id: string; type: string; text: string; n: number; cum: number; number?: number;
   spans?: Array<{ start: number; end: number; type: string; [k: string]: unknown }>;
   attributes?: Record<string, unknown>; style?: string; section?: string;
   table?: { rows: Array<Array<string | { text?: string; colspan?: number; rowspan?: number }>>; header_rows?: number; caption?: string };
   figure?: { asset: string; alt?: string; caption?: string; decorative?: boolean; url: string };
+  equation?: { syntax: string; source: string; domain?: string; align?: 'left' | 'center' | 'right'; numbered?: boolean };
+  /** SciCal's record of the functions a figure plots (checked by the server). On a paragraph it means "the picture is missing". */
+  graph?: GraphView;
 }
 export interface BlocksResponse { start: number; end: number; total: number; blocks: FlowBlock[] }
 

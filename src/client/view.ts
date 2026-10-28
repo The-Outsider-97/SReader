@@ -43,6 +43,8 @@ export interface DocView {
   rectOf(id: string): DOMRect | null;
   /** The text the current selection covers (for copy / search / summarize). */
   selectedText(): string;
+  /** The selection exactly as it is right now. The cached one can lag a few milliseconds behind fast keyboard input. */
+  liveSelection(): Promise<SelectionInfo | null>;
   clearSelection(): void;
   /** The zoom actually in effect, in percent (fit modes included). */
   zoomPercent(): number;

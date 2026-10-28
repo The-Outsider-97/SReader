@@ -158,7 +158,7 @@ export class ReaderSession implements ReaderContext {
 
   /** Highlight, underline or strike the current selection. */
   async markSelection(kind: 'highlight' | 'underline' | 'strike', color?: string, opacity?: number): Promise<void> {
-    const sel = this.sel;
+    const sel = (await this.view.liveSelection().catch(() => null)) ?? this.sel;      // what is selected now, not what was reported a moment ago
     if (!sel) { toast('Select some text first.'); return; }
     const style: Record<string, unknown> = { color: color ?? (kind === 'highlight' ? this.state.highlightColor : '#ef4444') };
     if (opacity !== undefined) style.opacity = opacity;

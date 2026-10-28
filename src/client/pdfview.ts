@@ -628,6 +628,7 @@ export class PdfView implements DocView {
     this.ctx.selection(info);
   }
 
+  liveSelection(): Promise<SelectionInfo | null> { return this.computeSelection(true); }
   selectedText(): string {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return '';

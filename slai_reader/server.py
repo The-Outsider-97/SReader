@@ -208,6 +208,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _static(self, path: str) -> Response:
         rel = "index.html" if path in ("/", "") else path.lstrip("/")
+        if rel == "favicon.ico":                 # browsers ask for this address by themselves (bookmarks, history) whatever <link> says
+            rel = "assets/favicon.ico"
         target = (self.reader_server.client_dir / rel).resolve()
         try:
             target.relative_to(self.reader_server.client_dir)

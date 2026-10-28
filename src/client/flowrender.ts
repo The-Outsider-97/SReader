@@ -2,9 +2,10 @@
 // and search hits only wrap pieces of it), so a selection can be turned into offsets and an annotation back into a range.
 import { markStyle } from '../core/appearance.js';
 import { cpToU16, hasAstral } from '../core/text.js';
-import type { Annotation, FlowBlock } from '../core/types.js';
-import { h } from './dom.js';
+import type { Annotation, FlowBlock, GraphView } from '../core/types.js';
+import { h, replace, svg } from './dom.js';
 import { drawInk, inkLayer } from './ink.js';
+import { math } from './mathdom.js';
 import { safeHref } from './view.js';
 
 export interface MarkSpec { id: string; kind: 'highlight' | 'underline' | 'strike' | 'note'; start: number; end: number; color: string; opacity: number; hasNote: boolean; moved: boolean }
@@ -96,6 +97,63 @@ function table(b: FlowBlock): HTMLTableElement {
   return t;
 }
 
+// ---------------------------------------------------------------------------------------------------- figures and graphs
+// A figure is its picture. A graph written by SciCal also lists the functions it plots, one per line directly beneath the picture, each
+// with a small sample of the line drawn the way the picture draws it (colour *and* dash pattern, so the list still reads in grayscale).
+const KEY_DASH: Record<string, string> = { solid: 'none', dash: '7 4', dot: '1.5 4', dashdot: '8 3 1.5 3' };
+
+function lineKey(color: string | null, dash: string): SVGSVGElement {
+  const key = svg('svg', { class: 'gf-key', attrs: { viewBox: '0 0 34 10', width: 34, height: 10, 'aria-hidden': 'true', focusable: 'false' } });
+  const line = svg('line', { attrs: { x1: 2, y1: 5, x2: 32, y2: 5, 'stroke-width': 2.6, 'stroke-linecap': 'round', 'stroke-dasharray': KEY_DASH[dash] ?? 'none' } });
+  line.style.setProperty('stroke', color ?? 'currentColor');
+  key.appendChild(line);
+  return key;
+}
+
+/** The formulas of a graph, one per line (never side by side). Returns null when the record says why there are none. */
+export function graphFormulas(g: GraphView): HTMLElement | null {
+  const series = g.series ?? [];
+  if (!series.length) return null;
+  const list = h('ol', { class: 'gf-formulas', attrs: { 'aria-label': 'Functions plotted in this graph' } });
+  for (const s of series) {
+    const formula = s.latex
+      ? math(s.latex, { label: s.expression ?? undefined })
+      : h('code', { class: 'eqsrc', text: s.expression ?? '', attrs: { role: 'math' } });
+    list.appendChild(h('li', { class: 'gf-item', data: { series: s.id } }, lineKey(s.color, s.dash), h('span', { class: 'eq gf-eq' }, formula)));
+  }
+  if (g.skipped) list.appendChild(h('li', { class: 'gf-note', text: `${g.skipped} more ${g.skipped === 1 ? 'function was' : 'functions were'} not listed because the record was incomplete.` }));
+  return list;
+}
+
+function missingFigure(reason: string, alt: string | undefined): HTMLElement {
+  return h('div', { class: 'gf-missing', attrs: { role: 'note' } }, h('strong', { text: 'Figure not shown. ' }), h('span', { text: reason + (alt ? ` It was described as: ${alt}` : '') }));
+}
+
+function figure(b: FlowBlock, o: RenderOpts, common: { data: Record<string, string | number> }): HTMLElement {
+  const g = b.graph;
+  const el = h('figure', { class: g ? 'b graph-figure' : 'b', ...common });
+  const f = b.figure;
+  if (!f) return el;
+  const alt = f.decorative ? '' : (f.alt ?? '');
+  const attrs: Record<string, string | number> = { src: `/api/doc/${o.sid}/${f.url}`, alt, loading: 'lazy', decoding: 'async' };
+  const dims = g?.image;
+  if (dims && dims.width && dims.height) { attrs.width = dims.width; attrs.height = dims.height; }     // reserve the room: no jump when the picture arrives
+  const img = h('img', { attrs });
+  const frame = g ? h('div', { class: 'gf-plot' }, img) : el;
+  img.addEventListener('error', () => {
+    // The picture is missing or cannot be decoded: say so where it should be and keep the rest of the figure (and document) intact.
+    const note = missingFigure('The picture could not be loaded; it may be missing or damaged.', alt || undefined);
+    if (g) replace(frame, note); else img.replaceWith(note);
+  });
+  if (g) el.appendChild(frame); else el.appendChild(img);
+  if (g) {
+    if (g.error) el.appendChild(h('p', { class: 'gf-note', text: g.error }));
+    else { const list = graphFormulas(g); if (list) el.appendChild(list); }
+  }
+  if (f.caption) el.appendChild(h('figcaption', { text: f.caption }));
+  return el;
+}
+
 export function renderBlock(b: FlowBlock, o: RenderOpts): HTMLElement {
   let el: HTMLElement;
   const level = Math.min(6, Math.max(1, Number((b.attributes as Record<string, unknown> | undefined)?.level ?? 1) || 1));
@@ -112,12 +170,16 @@ export function renderBlock(b: FlowBlock, o: RenderOpts): HTMLElement {
       break;
     }
     case 'table': el = table(b); break;
-    case 'figure': {
-      el = h('figure', { class: 'b', ...common });
-      if (b.figure) {
-        const img = h('img', { attrs: { src: `/api/doc/${o.sid}/${b.figure.url}`, alt: b.figure.decorative ? '' : (b.figure.alt ?? ''), loading: 'lazy', decoding: 'async' } });
-        el.appendChild(img);
-        if (b.figure.caption) el.appendChild(h('figcaption', { text: b.figure.caption }));
+    case 'figure': el = figure(b, o, common); break;
+    case 'equation': {
+      // A display equation is typeset from its LaTeX source (the same drawing SciCal uses). Other syntaxes are shown as their source,
+      // labelled, rather than dropped. An equation has no text of its own, so there is nothing in it to select, highlight or anchor to.
+      el = h('div', { class: 'b eq', ...common });
+      const eq = b.equation;
+      if (eq) {
+        el.style.setProperty('--eq-just', eq.align === 'left' ? 'flex-start' : eq.align === 'right' ? 'flex-end' : 'center');
+        el.appendChild(eq.syntax === 'latex' ? math(eq.source, { display: true })
+          : h('code', { class: 'eqsrc', text: eq.source, title: `Shown as ${eq.syntax} source; Reader typesets LaTeX only`, attrs: { role: 'math', 'aria-label': `${eq.syntax} equation` } }));
       }
       break;
     }
@@ -126,7 +188,9 @@ export function renderBlock(b: FlowBlock, o: RenderOpts): HTMLElement {
       el = h('div', { class: 'b embed', ...common, text: `${emb?.kind ?? 'Embedded content'}. ${emb?.note ?? 'Embedded content is shown as a declaration and is never run.'}` });
       break;
     }
-    default: el = h('p', { class: 'b', ...common });
+    // A paragraph that carries a graph record is SciCal's "the picture of this graph is missing" notice: it keeps its text and lists the
+    // functions below it. (A <div>, because a list is not allowed inside a <p>.)
+    default: el = b.type === 'paragraph' && b.graph ? h('div', { class: 'b graph-missing', ...common, attrs: { role: 'note' } }) : h('p', { class: 'b', ...common });
   }
   if (TEXT_TYPES.has(b.type)) {
     // Each paragraph takes its direction from its own first strong character, so an Arabic or Hebrew paragraph in a document whose
@@ -135,6 +199,7 @@ export function renderBlock(b: FlowBlock, o: RenderOpts): HTMLElement {
     const txt = h('span', { class: 'txt' });
     txt.appendChild(inlineContent(b, o.extras, o.theme, o.selected));
     el.appendChild(txt);
+    if (b.type === 'paragraph' && b.graph) { const list = graphFormulas(b.graph); if (list) el.appendChild(list); }
   }
   if ((b.attributes as Record<string, unknown> | undefined)?.page_break_before) el.classList.add('pb');
   // Pins, ribbons and drawings sit over the block, never inside its text.

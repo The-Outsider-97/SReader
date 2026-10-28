@@ -17,6 +17,7 @@ from typing import Any, Iterable
 from ..annotations import anchors
 from ..bridge import sldc
 from ..errors import BadRequest, NotFound
+from . import figures
 from .base import OpenDocument
 
 TEXT_BLOCKS = frozenset({"heading", "paragraph", "list_item", "quote", "code"})
@@ -123,14 +124,17 @@ class FlowDocument(OpenDocument):
         forced = set(self.logical_pages())
         starts: list[int] = []
         used = 0
+        # A figure is as tall as many lines of text (and a graph also lists its formulas beneath it), so it is charged for that; a
+        # figure with its formulas then moves to the next page whole instead of being split by the page's end.
+        room = [figures.extra_cost(b) for b in self.blocks]
         for i, text in enumerate(self._texts):
-            cost = max(len(text), 1) + (120 if self.blocks[i]["type"] == "heading" else 0)
+            cost = max(len(text), 1) + (120 if self.blocks[i]["type"] == "heading" else 0) + room[i]
             if i == 0 or i in forced or (used > 0 and (used + cost > budget or i - starts[-1] >= 150)):
                 cut = i
                 if i not in forced and i - 1 > starts[-1] and self.blocks[i - 1]["type"] == "heading":
                     cut = i - 1                                   # keep a heading with the text that follows it
                 starts.append(cut)
-                used = sum(max(len(self._texts[j]), 1) for j in range(cut, i))
+                used = sum(max(len(self._texts[j]), 1) + room[j] for j in range(cut, i))
             used += cost
         return starts
 
@@ -222,7 +226,11 @@ class FlowDocument(OpenDocument):
         if "equation" in b:
             v["equation"] = b["equation"]
         if "figure" in b:
-            v["figure"] = {**b["figure"], "url": f"asset/{b['figure']['asset']}"}
+            # The caption of a figure is the block's own text (SLDC keeps it there); the client needs it with the figure.
+            v["figure"] = {**b["figure"], "url": f"asset/{b['figure']['asset']}", "caption": b.get("text") or ""}
+        graph = figures.graph_view(b)
+        if graph is not None:
+            v["graph"] = graph
         if "embed" in b:
             embed = next((e for e in (self.doc.get("embeds") or []) if e["id"] == b["embed"]), {})
             v["embed"] = {"id": b["embed"], "kind": embed.get("kind", "unknown"),

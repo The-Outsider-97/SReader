@@ -56,7 +56,7 @@ export class Toolbar {
     const action = (name: MaterialName, label: string, click: () => void, keys?: string): HTMLButtonElement =>
       materialButton(name, label, click, { keys });
     const appearanceBtn = action('text_fields', 'Reading appearance', () => app.openAppearance(appearanceBtn.getBoundingClientRect()));
-    this.toolBtn = action('text_fields', 'Show annotation tools', () => this.toggleTools());
+    this.toolBtn = action('pen', 'Show annotation tools', () => this.toggleTools());
     this.toolBtn.setAttribute('aria-controls', 'reader-annotation-toolbar');
     this.toolBtn.setAttribute('aria-expanded', 'false');
     this.menuBtn = action('menu', 'Open menu', () => this.toggleMenu());

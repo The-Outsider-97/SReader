@@ -623,6 +623,7 @@ export class FlowView implements DocView {
   }
 
   selectedText(): string { return this.computeSelection()?.text ?? ''; }
+  async liveSelection(): Promise<SelectionInfo | null> { return this.computeSelection(); }
   clearSelection(): void { window.getSelection()?.removeAllRanges(); this.lastSel = false; this.finalKey = ''; }
 
   // ------------------------------------------------------------------ clicks
