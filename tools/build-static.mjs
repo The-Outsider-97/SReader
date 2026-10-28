@@ -1,7 +1,7 @@
 // Build the browser client: compile TypeScript to dist/js, copy the page and style sheet next to it.
 // Uses the project's TypeScript if installed (npm install), otherwise a `tsc` on the PATH.
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,4 +17,6 @@ if (tsc) execFileSync(process.execPath, [tsc, ...args], { stdio: 'inherit', cwd:
 else execFileSync(process.platform === 'win32' ? 'tsc.cmd' : 'tsc', args, { stdio: 'inherit', cwd: root, shell: process.platform === 'win32' });
 cpSync(join(root, 'src', 'client', 'index.html'), join(dist, 'index.html'));
 cpSync(join(root, 'src', 'client', 'styles.css'), join(dist, 'styles.css'));
+// The application icons (assets/: the SReader logo and the sizes made from it by tools/make_icons.py) travel with the client.
+if (existsSync(join(root, 'assets'))) cpSync(join(root, 'assets'), join(dist, 'assets'), { recursive: true });
 console.log('Built dist/');

@@ -154,6 +154,19 @@ def make_sldc(path: Path, paragraphs: int = 30, title: str = "Fixture Document",
     return path
 
 
+def make_equation_sldc(path: Path) -> Path:
+    """A SciCal-style worksheet: typeset input on the left, result on the right, and one equation in a syntax Reader only shows as source."""
+    from src.utils import sldc as s
+    blocks = [s.make_block("heading", "Worksheet 1", block_id="h1", attributes={"level": 1}),
+              s.make_equation(r"7 \cdot \sqrt{\frac{5}{8}}", align="left", block_id="e1"),
+              s.make_equation(r"\frac{7 \sqrt{10}}{4}", align="right", block_id="e2"),
+              s.make_equation(r"\ce{H2O}", syntax="mhchem", domain="chemistry", block_id="e3")]
+    pkg = s.new_package("Worksheet 1", blocks, doc_id="equation-doc-1")
+    pkg.version = "1.1.0"
+    s.write_package(path, pkg, overwrite=True)
+    return path
+
+
 def make_encrypted_sldc(path: Path, password: str = "correct horse battery") -> Path:
     from src.utils import sldc as s
     pkg = s.new_package("Secret", [s.make_block("paragraph", "Top secret reading material.", block_id="p1")], doc_id="secret-doc")

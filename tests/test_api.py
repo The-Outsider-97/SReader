@@ -27,6 +27,16 @@ class OpenAndRead(ApiBase):
         out = self.api.data(200, self.api.get(f"/api/doc/{sid}/outline"))
         self.assertTrue(out and out[0]["location"]["block"])
 
+    def test_equation_blocks_are_sent_with_their_source_and_alignment(self):
+        d = self.api.open(self.make("eq.sldc", fixtures.make_equation_sldc))
+        self.assertIn("equations", d["info"]["features"])
+        blocks = self.api.data(200, self.api.get(f"/api/doc/{d['sid']}/blocks?start=0&limit=10"))["blocks"]
+        eqs = {b["id"]: b for b in blocks if b["type"] == "equation"}
+        self.assertEqual(eqs["e1"]["equation"], {"syntax": "latex", "domain": "mathematics", "source": r"7 \cdot \sqrt{\frac{5}{8}}", "align": "left"})
+        self.assertEqual(eqs["e2"]["equation"]["align"], "right")
+        self.assertEqual(eqs["e3"]["equation"]["syntax"], "mhchem")
+        self.assertTrue(all(b["text"] == "" for b in eqs.values()))                       # an equation has no text of its own: the source is authoritative
+
     def test_text_opens_when_the_slai_parser_cannot_start(self):
         """On a computer where the SLAI Reader parser fails to import (an old `colorama`, say) .txt and .md are still read, and the page says why."""
         class DependencyMissing(Exception):          # Documaster raises its own type of this name
