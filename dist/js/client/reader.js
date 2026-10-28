@@ -164,7 +164,7 @@ export class ReaderSession {
     }
     /** Highlight, underline or strike the current selection. */
     async markSelection(kind, color, opacity) {
-        const sel = this.sel;
+        const sel = (await this.view.liveSelection().catch(() => null)) ?? this.sel; // what is selected now, not what was reported a moment ago
         if (!sel) {
             toast('Select some text first.');
             return;

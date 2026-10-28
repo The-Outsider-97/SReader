@@ -1,7 +1,11 @@
 // The appearance panel. Every control changes something that really changes the page, or is disabled with the reason.
+// The panel keeps no settings of its own: it shows what the service has confirmed (`state.effective`), sends changes through the
+// app's one batcher, and says plainly whether they were saved.
 import { readability } from '../core/appearance.js';
+import { field, section, segmented, slider, toggle } from './controls.js';
 import { button, h, nextId } from './dom.js';
-import { confirmDialog, popover, toast } from './ui.js';
+import { material } from './material.js';
+import { popover } from './ui.js';
 const THEMES = [
     ['system', 'Follow system', 'Light or dark, whichever your computer uses'],
     ['light', 'Light', 'White paper, dark text'],
@@ -9,114 +13,187 @@ const THEMES = [
     ['dark', 'Dark', 'Dark grey paper, soft light text (not inverted)'],
     ['contrast', 'High contrast', 'Black and white with yellow links; maximum legibility'],
 ];
+const SWATCH = { system: ['#ffffff', '#161b22'], light: ['#ffffff', '#1a1a1a'], sepia: ['#f4ecd8', '#433422'], dark: ['#161b22', '#dde1e7'], contrast: ['#000000', '#ffff00'] };
 export function openSettings(app, anchor) {
-    const { state, session } = app;
-    const v = state.effective.values;
+    const session = app.session; // the panel belongs to this document, even if another is opened later
     const cap = session?.payload.capabilities;
     const fixed = session?.fixed ?? false;
-    const docOnly = h('input', { attrs: { type: 'checkbox' }, checked: app.docOnly, disabled: !session });
-    const dId = nextId('doc');
-    docOnly.id = dId;
-    let timer = 0;
-    let pending = {};
-    let pendingDocOnly = app.docOnly && !!session;
-    let pop;
-    const flush = () => {
-        window.clearTimeout(timer);
-        const patch = pending;
-        pending = {};
-        if (!Object.keys(patch).length)
-            return;
-        void app.setAppearance(patch, pendingDocOnly).then(refreshWarning, () => {
-            // Recreate the controls from the last confirmed effective values after a failed save.
-            if (pop.el.isConnected) {
-                pop.close();
-                openSettings(app, anchor);
-            }
-        });
-    };
-    const commit = (patch, immediate = false) => {
-        window.clearTimeout(timer);
-        const scope = app.docOnly && !!session;
-        if (Object.keys(pending).length && scope !== pendingDocOnly)
-            flush();
-        pendingDocOnly = scope;
-        pending = { ...pending, ...patch };
-        if (immediate)
-            flush();
-        else
-            timer = window.setTimeout(flush, 180);
-    };
-    docOnly.addEventListener('change', () => { flush(); app.docOnly = docOnly.checked; });
-    const row = (label, control, note, disabledWhy) => {
-        const id = control.id || (control.id = nextId('s'));
-        const wrap = h('div', { class: 'field' }, h('label', { text: label, attrs: { for: id } }), control);
-        if (disabledWhy) {
-            control.disabled = true;
-            wrap.appendChild(h('div', { class: 'hint', text: disabledWhy }));
-        }
-        else if (note)
-            wrap.appendChild(h('div', { class: 'hint', text: note }));
-        return wrap;
-    };
-    const slider = (min, max, step, value, fmt, patch, label, disabledWhy, note) => {
-        const input = h('input', { attrs: { type: 'range', min, max, step }, value: String(value) });
-        const out = h('span', { class: 'num muted', text: fmt(value), attrs: { 'aria-hidden': 'true' } });
-        input.addEventListener('input', () => { out.textContent = fmt(Number(input.value)); input.setAttribute('aria-valuetext', fmt(Number(input.value))); commit(patch(Number(input.value))); });
-        input.setAttribute('aria-valuetext', fmt(value));
-        const wrap = h('div', { class: 'field' }, h('label', { attrs: { for: (input.id = nextId('s')) } }, label, ' ', out), input);
-        if (disabledWhy) {
-            input.disabled = true;
-            wrap.appendChild(h('div', { class: 'hint', text: disabledWhy }));
-        }
-        else if (note)
-            wrap.appendChild(h('div', { class: 'hint', text: note }));
-        return wrap;
-    };
-    // theme
-    const themeBox = h('div', { class: 'field', attrs: { role: 'radiogroup', 'aria-label': 'Reading mode' } }, h('div', { text: 'Reading mode', style: { fontWeight: '600', fontSize: '.85rem' } }));
+    const batch = app.appearance;
+    const state = app.state;
+    const sets = [];
+    const commit = (patch, immediate = false) => app.commitAppearance(patch, immediate);
+    // ---- reading mode
+    const themeGroup = h('div', { class: 'modes', attrs: { role: 'radiogroup', 'aria-label': 'Reading mode' } });
+    const themeInputs = new Map();
     for (const [id, name, desc] of THEMES) {
         const rid = nextId('theme');
-        const r = h('input', { attrs: { type: 'radio', name: 'theme', id: rid }, checked: v.theme === id });
-        r.addEventListener('change', () => { if (r.checked)
+        const input = h('input', { class: 'visually-hidden', attrs: { type: 'radio', name: 'reading-mode', id: rid, 'aria-describedby': `${rid}-d` } });
+        input.addEventListener('change', () => { if (input.checked)
             commit({ theme: id }, true); });
-        themeBox.appendChild(h('div', { class: 'row' }, r, h('label', { attrs: { for: rid } }, h('strong', { text: name }), h('span', { class: 'muted small', text: ` – ${desc}` }))));
+        themeInputs.set(id, input);
+        const [paper, ink] = SWATCH[id];
+        const chip = h('span', { class: `chip-mode${id === 'system' ? ' split' : ''}`, attrs: { 'aria-hidden': 'true' } }, ...(id === 'system' ? [h('i', { text: 'A' }), h('i', { text: 'a' })] : [h('i', { text: 'Aa' })]));
+        chip.style.setProperty('--p', paper);
+        chip.style.setProperty('--i', ink);
+        themeGroup.append(input, h('label', { class: 'mode', attrs: { for: rid } }, chip, h('strong', { text: name }), h('span', { class: 'visually-hidden', id: `${rid}-d`, text: desc })));
+        themeGroup.lastElementChild?.setAttribute('title', desc);
     }
-    // text colour
-    const colour = h('input', { attrs: { type: 'color' }, value: v.fontColor ?? state.effective.colors.text });
+    sets.push({ keys: ['theme'], sync: (v) => { const i = themeInputs.get(v.theme); if (i)
+            i.checked = true; } });
+    // ---- text
+    const colour = h('input', { attrs: { type: 'color', 'aria-label': 'Text colour' } });
     colour.addEventListener('input', () => commit({ fontColor: colour.value }));
-    const themeColour = button('Use the mode’s colour', () => { commit({ fontColor: null }, true); colour.value = state.effective.colors.text; }, { cls: 'small' });
+    const modeColour = button('Use the mode’s colour', () => commit({ fontColor: null }, true), { cls: 'small' });
+    const colourField = field('Text colour', h('div', { class: 'row' }, colour, modeColour));
+    colourField.control.removeAttribute('id');
+    colourField.el.querySelector('label')?.setAttribute('for', (colour.id = nextId('c')));
+    const colourDisabled = cap && cap.fontColor === false ? (cap.fontColorNote ?? 'This document keeps its own text colour.') : null;
+    if (colourDisabled) {
+        colour.disabled = true;
+        modeColour.disabled = true;
+        colourField.el.classList.add('is-disabled');
+    }
+    const colourHint = h('div', { class: 'hint', text: colourDisabled ?? cap?.fontColorNote ?? '', hidden: !(colourDisabled ?? cap?.fontColorNote) });
+    colourField.el.append(colourHint);
+    sets.push({ keys: ['fontColor'], sync: () => { colour.value = state.effective.values.fontColor ?? state.effective.colors.text; } });
+    const opacity = slider('Text opacity', { min: 30, max: 100, step: 5, value: 100, format: (n) => `${n}%`, onInput: (n) => commit({ fontOpacity: n }) });
+    if (cap && cap.fontOpacity === false)
+        opacity.setDisabled(cap.fontColorNote ?? 'This document keeps its own text colour.');
+    sets.push({ keys: ['fontOpacity'], sync: (v) => opacity.set(v.fontOpacity) });
     const warn = h('div', { class: 'banner warn', hidden: true, attrs: { role: 'status' } });
+    const reasonFor = (flag) => cap && cap[flag] === false ? (cap.fontSizeNote ?? 'This document’s text layout is fixed. Use Zoom instead.') : null;
+    const size = slider('Text size', { min: 10, max: 48, step: 1, value: 18, format: (n) => `${n}px`, onInput: (n) => commit({ fontSize: n }) });
+    const sizeWhy = reasonFor('fontSize');
+    if (sizeWhy)
+        size.setDisabled(sizeWhy);
+    sets.push({ keys: ['fontSize'], sync: (v) => size.set(v.fontSize) });
+    const family = h('select', {}, h('option', { value: 'serif', text: 'Serif (book)' }), h('option', { value: 'sans', text: 'Sans-serif' }), h('option', { value: 'mono', text: 'Monospace' }));
+    family.addEventListener('change', () => commit({ fontFamily: family.value }, true));
+    const familyField = field('Typeface', family);
+    const familyWhy = reasonFor('fontFamily');
+    if (familyWhy)
+        familyField.setDisabled(familyWhy);
+    sets.push({ keys: ['fontFamily'], sync: (v) => { family.value = v.fontFamily; } });
+    const spacing = slider('Line spacing', { min: 1, max: 2.5, step: 0.1, value: 1.6, format: (n) => n.toFixed(1), onInput: (n) => commit({ lineSpacing: Math.round(n * 10) / 10 }) });
+    const spacingWhy = reasonFor('lineSpacing');
+    if (spacingWhy)
+        spacing.setDisabled(spacingWhy);
+    sets.push({ keys: ['lineSpacing'], sync: (v) => spacing.set(v.lineSpacing) });
+    const measure = slider('Line length', { min: 30, max: 140, step: 5, value: 70, format: (n) => `${n} characters`, onInput: (n) => commit({ columnWidth: n }) });
+    const measureWhy = reasonFor('columnWidth');
+    if (measureWhy)
+        measure.setDisabled(measureWhy);
+    sets.push({ keys: ['columnWidth'], sync: (v) => measure.set(v.columnWidth) });
+    const align = segmented('Alignment', 'text-align', [['start', 'Left'], ['justify', 'Justified']], 'start', (a) => commit({ textAlign: a }, true));
+    const alignWhy = reasonFor('textAlign');
+    if (alignWhy)
+        align.setDisabled(alignWhy);
+    sets.push({ keys: ['textAlign'], sync: (v) => align.set(v.textAlign) });
+    // ---- page
+    const layouts = [['continuous', 'Continuous scroll'], ['single', 'One page at a time'], ['spread', 'Two-page spread']]
+        .filter(([id]) => !cap?.layouts || cap.layouts.includes(id));
+    const layout = h('select', {}, ...layouts.map(([id, text]) => h('option', { value: id, text })));
+    const layoutField = field('Page layout', layout);
+    const cover = toggle('In a two-page spread, show the cover on its own', true, (on) => commit({ coverAlone: on }, true));
+    sets.push({ keys: ['layout'], sync: (v) => { layout.value = v.layout === 'focus' ? 'continuous' : v.layout; cover.setDisabled(v.layout === 'spread' ? null : 'Applies to the two-page spread layout.'); } });
+    layout.addEventListener('change', () => commit({ layout: layout.value }, true));
+    sets.push({ keys: ['coverAlone'], sync: (v) => cover.set(v.coverAlone) });
+    const pdfMode = h('select', {}, h('option', { value: 'match', text: 'Match the reading mode' }), h('option', { value: 'original', text: 'As printed (original colours)' }));
+    pdfMode.addEventListener('change', () => commit({ pdfAppearance: pdfMode.value }, true));
+    const pdfField = field('PDF colours', pdfMode, { hint: 'Recolours the page when it is drawn. Scanned images keep their own colours.' });
+    sets.push({ keys: ['pdfAppearance'], sync: (v) => { pdfMode.value = v.pdfAppearance; } });
+    // ---- display
+    const motion = toggle('Reduce motion', false, (on) => commit({ reduceMotion: on }, true), 'Turns off sliding and fading. Applies to every document.');
+    sets.push({ keys: ['reduceMotion'], sync: (v) => motion.set(v.reduceMotion) });
+    // ---- scope and resets
+    const scope = toggle('Apply changes to this document only', app.docOnly && !!session, (on) => { app.docOnly = on; paintScope(); }, session ? undefined : 'Open a document to keep settings for just that document.');
+    if (!session)
+        scope.setDisabled('Open a document to keep settings for just that document.');
+    const scopeNote = h('div', { class: 'hint' });
+    const resetDoc = button('Reset this document', () => { void run(app.resetDocument()); }, { cls: 'small', disabled: !session });
+    const confirmBox = h('div', { class: 'confirm', hidden: true, attrs: { role: 'group', 'aria-label': 'Confirm reset' } });
+    const resetAll = button('Reset everything…', () => askConfirm(), { cls: 'small danger' });
+    function askConfirm() {
+        confirmBox.hidden = false;
+        resetAll.hidden = true;
+        confirmBox.replaceChildren(h('span', { text: 'Put every reading setting back to its default, for all documents?' }), h('div', { class: 'row' }, button('Reset', () => { closeConfirm(); void run(app.resetEverything()); }, { cls: 'small danger' }), button('Cancel', () => closeConfirm(), { cls: 'small' })));
+        confirmBox.querySelector('button')?.focus();
+    }
+    function closeConfirm() { confirmBox.hidden = true; resetAll.hidden = false; resetAll.focus(); }
+    function paintScope() {
+        const own = session ? Object.keys(session.docPrefs).length : 0;
+        const on = app.docOnly && !!session;
+        scopeNote.textContent = !session ? 'Changes apply to every document.'
+            : on ? `Changes apply to this document only.${own ? ` It has ${own} setting${own === 1 ? '' : 's'} of its own.` : ''}`
+                : `Changes apply to every document.${own ? ` This document keeps ${own} of its own, which win over them (use Reset this document).` : ''}`;
+        resetDoc.disabled = !session || own === 0;
+        resetDoc.title = own === 0 ? 'This document has no settings of its own' : 'Remove this document’s own settings';
+    }
+    const run = async (op) => { try {
+        await op;
+    }
+    catch { /* the status area reports it */ }
+    finally {
+        sync();
+    } };
+    // ---- save status
+    const dot = h('span', { class: 'save-dot', attrs: { 'aria-hidden': 'true' } });
+    const statusText = h('span', { class: 'save-text' });
+    const status = h('div', { class: 'save-status', attrs: { 'aria-hidden': 'true' } }, dot, statusText);
+    const live = h('div', { class: 'visually-hidden', attrs: { role: 'status', 'aria-live': 'polite' } });
+    const alertBox = h('div', { class: 'banner bad ap-error', hidden: true, attrs: { role: 'alert' } });
+    let lastPhase = '';
+    function paintStatus() {
+        const phase = batch.phase;
+        status.dataset.phase = phase;
+        statusText.textContent = phase === 'saving' ? 'Saving…' : phase === 'saved' ? 'Saved' : phase === 'error' ? 'Not saved' : 'Saved as you go';
+        if (phase !== lastPhase) {
+            if (phase === 'saved')
+                live.textContent = 'Settings saved.';
+            else if (phase === 'idle')
+                live.textContent = '';
+        }
+        lastPhase = phase;
+        const err = phase === 'error' ? batch.error : null;
+        alertBox.hidden = !err;
+        if (err) {
+            alertBox.replaceChildren(h('div', { class: 'grow' }, h('strong', { text: 'Not saved. ' }), err, ' The settings shown are the ones that were kept.'), button('Try again', () => batch.retry(), { cls: 'small' }), button('Dismiss', () => batch.dismissError(), { cls: 'small flat', title: 'Dismiss' }));
+        }
+    }
+    // ---- keep the controls in step with what the service confirmed
     function refreshWarning() {
         const e = state.effective;
-        if (e.values.fontColor === null)
-            colour.value = e.colors.text;
         const r = readability(e.values.fontColor, e.theme, e.values.fontOpacity);
         warn.hidden = r.level === 'ok';
         warn.textContent = r.message ?? '';
         warn.classList.toggle('bad', r.level === 'poor');
     }
-    const layout = h('select', { attrs: { 'aria-label': 'Page layout' } }, h('option', { value: 'continuous', text: 'Continuous scroll' }), h('option', { value: 'single', text: 'One page at a time' }), h('option', { value: 'spread', text: 'Two-page spread' }));
-    layout.value = v.layout === 'focus' ? 'continuous' : v.layout;
-    layout.addEventListener('change', () => commit({ layout: layout.value }, true));
-    const cover = h('input', { attrs: { type: 'checkbox' }, checked: v.coverAlone });
-    cover.addEventListener('change', () => commit({ coverAlone: cover.checked }, true));
-    const cid = nextId('cover');
-    cover.id = cid;
-    const family = h('select', {}, h('option', { value: 'serif', text: 'Serif (book)' }), h('option', { value: 'sans', text: 'Sans-serif' }), h('option', { value: 'mono', text: 'Monospace' }));
-    family.value = v.fontFamily;
-    family.addEventListener('change', () => commit({ fontFamily: family.value }, true));
-    const align = h('select', {}, h('option', { value: 'start', text: 'Left (ragged)' }), h('option', { value: 'justify', text: 'Justified' }));
-    align.value = v.textAlign;
-    align.addEventListener('change', () => commit({ textAlign: align.value }, true));
-    const pdfMode = h('select', {}, h('option', { value: 'match', text: 'Match the reading mode' }), h('option', { value: 'original', text: 'As printed (original colours)' }));
-    pdfMode.value = v.pdfAppearance;
-    pdfMode.addEventListener('change', () => commit({ pdfAppearance: pdfMode.value }, true));
-    const flowOnly = fixed ? 'PDF pages are fixed layouts: their text size is part of the page. Use Zoom instead.' : undefined;
-    const body = h('div', { class: 'settings', style: { width: 'min(420px, 92vw)', maxHeight: '75vh', overflow: 'auto' } }, themeBox, h('div', { class: 'field' }, h('label', { text: 'Text colour', attrs: { for: (colour.id = nextId('s')) } }), h('div', { class: 'row' }, colour, themeColour), cap?.fontColorNote ? h('div', { class: 'hint', text: cap.fontColorNote }) : null), slider(30, 100, 5, v.fontOpacity, (n) => `${n}%`, (n) => ({ fontOpacity: n }), 'Text opacity', undefined, fixed ? cap?.fontColorNote : undefined), warn, slider(10, 48, 1, v.fontSize, (n) => `${n}px`, (n) => ({ fontSize: n }), 'Text size', flowOnly), row('Typeface', family, undefined, flowOnly), slider(1, 2.5, 0.1, v.lineSpacing, (n) => n.toFixed(1), (n) => ({ lineSpacing: Math.round(n * 10) / 10 }), 'Line spacing', flowOnly), slider(30, 140, 5, v.columnWidth, (n) => `${n} characters`, (n) => ({ columnWidth: n }), 'Line length', flowOnly), row('Alignment', align, undefined, flowOnly), ...(fixed ? [row('PDF colours', pdfMode, 'Recolours the page when it is drawn. Scanned images keep their own colours.')] : []), row('Page layout', layout), h('div', { class: 'row' }, cover, h('label', { text: 'In a two-page spread, show the cover on its own', attrs: { for: cid } })), h('hr'), h('div', { class: 'row' }, docOnly, h('label', { text: 'Apply these changes to this document only', attrs: { for: dId } })), h('div', { class: 'row', style: { marginTop: '10px' } }, button('Reset this document', () => { flush(); void app.resetDocument().then(() => pop.close(), (e) => toast(e instanceof Error ? e.message : 'Could not reset this document.')); }, { cls: 'small', disabled: !session }), button('Reset everything', () => { flush(); void confirmDialog('Reset all settings?', 'This puts every reading setting back to its default, for all documents.', 'Reset', true).then((ok) => { if (ok) {
-        void app.resetEverything().then(() => { pop.close(); toast('Settings reset.'); }, (e) => toast(e instanceof Error ? e.message : 'Could not reset settings.'));
-    } }); }, { cls: 'small danger' })));
-    pop = popover(anchor, body, { label: 'Appearance', onClose: flush });
-    refreshWarning();
+    function sync() {
+        if (!state.effective)
+            return;
+        const v = state.effective.values;
+        const hold = batch.unconfirmedKeys(); // never overwrite a value the person is still changing with an older answer
+        for (const s of sets)
+            if (!s.keys.some((k) => hold.has(k)))
+                s.sync(v);
+        refreshWarning();
+        paintScope();
+    }
+    const header = h('header', { class: 'ap-head' }, h('h2', { text: 'Appearance' }), h('span', { class: 'spacer' }), status, button('', () => pop.close(), { cls: 'icon-btn flat', title: 'Close' }));
+    header.querySelector('button').append(material('close'));
+    header.querySelector('button').setAttribute('aria-label', 'Close appearance panel');
+    const body = h('div', { class: 'ap-body' }, alertBox, live, h('div', { class: 'group-box scope' }, scope.el, scopeNote), section('Reading mode', themeGroup), section('Text', colourField.el, opacity.el, warn, size.el, familyField.el, spacing.el, measure.el, align.el), section('Page', layoutField.el, cover.el, fixed ? pdfField.el : null), section('Display', motion.el));
+    const footer = h('footer', { class: 'ap-foot' }, resetDoc, resetAll, confirmBox);
+    const el = h('div', { class: 'appearance' }, header, body, footer);
+    const offs = [state.on('prefs', sync), state.on('appearance', () => { paintStatus(); if (batch.phase !== 'saving')
+            sync(); })];
+    const pop = popover(anchor, el, {
+        label: 'Appearance', cls: 'appearance-pop', initialFocus: () => themeInputs.get(state.effective?.values.theme ?? 'system'),
+        onClose: () => { for (const off of offs)
+            off(); app.panelOpen = false; void batch.flush(); },
+    });
+    app.panelOpen = true;
+    sync();
+    paintStatus();
 }
 //# sourceMappingURL=settings.js.map

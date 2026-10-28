@@ -764,6 +764,7 @@ export class PdfView {
         this.lastSel = true;
         this.ctx.selection(info);
     }
+    liveSelection() { return this.computeSelection(true); }
     selectedText() {
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed)

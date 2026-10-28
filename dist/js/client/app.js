@@ -2,10 +2,12 @@
 // things that happen around a document (opening, password prompts, the file changing on disk, system colours).
 import { ApiError } from '../core/api.js';
 import { commandFor } from '../core/keys.js';
+import { PatchBatcher, scopeFor } from '../core/commit.js';
 import { clampZoom, stepZoom } from '../core/zoom.js';
 import { exportDialog, gotoDialog, handoffDialog, infoDialog, shortcutsDialog } from './dialogs.js';
 import { announce, button, clear, h, replace } from './dom.js';
 import { LibraryPage } from './library.js';
+import { changeMaterial, materialButton } from './material.js';
 import { ReaderSession } from './reader.js';
 import { openSettings } from './settings.js';
 import { Sidebar } from './sidebar.js';
@@ -26,6 +28,10 @@ export class App {
     poll = 0;
     fileTimer = 0;
     appearanceQueue = Promise.resolve();
+    lastAppearancePhase = 'idle';
+    /** True while the Appearance panel is on screen: it shows save problems itself, so no pop-up message is needed. */
+    panelOpen = false;
+    appearance = new PatchBatcher({ delay: 150, send: (scope, patch) => this.sendAppearance(scope, patch), onChange: () => this.reportAppearance() });
     constructor(root, state) {
         this.root = root;
         this.state = state;
@@ -85,9 +91,25 @@ export class App {
         document.documentElement.classList.toggle('reduce-motion', this.state.prefs.reduceMotion);
         document.documentElement.style.colorScheme = e.colors.dark ? 'dark' : 'light';
     }
+    /** Read what the service has actually saved (no writing) and show that. Used after a failure and when the system colours change. */
     async refreshEffective() {
+        const s = this.session;
         try {
-            this.state.effective = this.session ? await this.state.api.put(`/api/doc/${this.session.sid}/prefs`, { values: {} }) : (await this.state.api.get('/api/prefs')).effective;
+            if (s) {
+                const r = await this.state.api.get(`/api/doc/${s.sid}/prefs`);
+                if (this.session !== s)
+                    return;
+                this.state.prefs = r.values;
+                s.docPrefs = r.docPrefs;
+                this.state.effective = r.effective;
+            }
+            else {
+                const p = await this.state.api.get('/api/prefs');
+                if (this.session)
+                    return;
+                this.state.prefs = p.values;
+                this.state.effective = p.effective;
+            }
             this.applyTheme();
             this.session?.view.appearanceChanged();
             this.state.emit('prefs');
@@ -125,7 +147,21 @@ export class App {
         this.state.side = this.state.prefs.sidebar;
         const main = h('div', { class: 'main' }, this.banners, session.view.el);
         this.buildStatus();
-        this.root.append(this.toolbar.el, h('div', { class: 'body' }, this.sidebar.el, main), this.status);
+        const edge = materialButton('arrow_forward_ios', 'Show side panel', () => this.toggleSide(), { cls: 'side-edge-toggle' });
+        edge.setAttribute('aria-controls', 'reader-side-panel');
+        this.sidebar.el.id = 'reader-side-panel';
+        const body = h('div', { class: 'body reader-workspace' }, this.sidebar.el, edge, main);
+        const syncSide = () => {
+            const opened = this.state.side !== 'none';
+            body.classList.toggle('side-visible', opened);
+            edge.setAttribute('aria-expanded', String(opened));
+            edge.setAttribute('aria-label', opened ? 'Hide side panel' : 'Show side panel');
+            edge.title = opened ? 'Hide side panel (Ctrl+B)' : 'Show side panel (Ctrl+B)';
+            changeMaterial(edge, opened ? 'arrow_back_ios_new' : 'arrow_forward_ios');
+        };
+        this.state.on('side', syncSide);
+        this.root.append(this.toolbar.el, body, this.status);
+        syncSide();
         document.title = `${p.info.title || 'Document'} \u2013 SLAI Reader`;
         this.library = null;
         this.sidebar.render();
@@ -192,11 +228,12 @@ export class App {
         const s = this.session;
         if (!s)
             return;
+        closePopover();
+        await this.appearance.flush(); // settings changed for this document are saved to it before it is closed
         this.session = null;
         this.state.doc = null;
         this.state.annotations = [];
         this.sidebar.attach(null);
-        closePopover();
         await s.close();
     }
     // ------------------------------------------------------------------ opening things
@@ -304,17 +341,28 @@ export class App {
         }
     }
     // ------------------------------------------------------------------ appearance
+    // One path for every appearance change. The batcher merges rapid edits and keeps document settings apart from general ones;
+    // `queueAppearance` answers them from the service strictly in order, so an older answer can never replace a newer one.
     queueAppearance(operation) {
         const next = this.appearanceQueue.then(operation);
-        this.appearanceQueue = next.catch(() => undefined);
+        this.appearanceQueue = next.then(() => undefined, () => undefined);
         return next;
     }
-    setAppearance(patch, docOnly) {
-        const s = this.session; // A queued update must not accidentally target the next document.
-        return this.queueAppearance(async () => {
+    /** Change settings the way the Appearance panel does: each goes to this document or to everyone, as the person chose. */
+    commitAppearance(patch, immediate = false) {
+        for (const [key, value] of Object.entries(patch))
+            this.appearance.add(scopeFor(key, this.docOnly, !!this.session), { [key]: value }, immediate);
+    }
+    /** Zoom, fit and layout always belong to the document that is open. */
+    commitForDocument(patch) { this.appearance.add(this.session ? 'doc' : 'global', patch, true); }
+    async sendAppearance(scope, patch) {
+        const s = this.session; // the target is fixed when the request starts; closing a document waits for its changes first
+        await this.queueAppearance(async () => {
             try {
                 let eff;
-                if (s && docOnly) {
+                if (scope === 'doc') {
+                    if (!s || this.session !== s)
+                        throw new Error('That document is no longer open, so the setting was not changed.');
                     eff = await this.state.api.put(`/api/doc/${s.sid}/prefs`, { values: patch });
                     s.docPrefs = { ...s.docPrefs, ...patch };
                 }
@@ -322,11 +370,19 @@ export class App {
                     const res = await this.state.api.put('/api/prefs', patch);
                     this.state.prefs = res.values;
                     eff = res.effective;
-                    if (s) {
+                    if (s && this.session === s) {
+                        // A general change must show on this document: release the document's own value for it, then read what applies now.
                         const overridden = Object.keys(patch).filter((k) => k in s.docPrefs);
-                        eff = await this.state.api.put(`/api/doc/${s.sid}/prefs`, { values: {}, unset: overridden });
-                        for (const k of overridden)
-                            delete s.docPrefs[k];
+                        try {
+                            eff = overridden.length
+                                ? await this.state.api.put(`/api/doc/${s.sid}/prefs`, { values: {}, unset: overridden })
+                                : (await this.state.api.get(`/api/doc/${s.sid}/prefs`)).effective;
+                            for (const k of overridden)
+                                delete s.docPrefs[k];
+                        }
+                        catch (e) {
+                            throw new Error(`Saved for all documents, but this document keeps its own value for ${overridden.join(', ')}: ${e instanceof Error ? e.message : 'the document settings could not be updated'}`);
+                        }
                     }
                 }
                 if (this.session !== s) {
@@ -340,45 +396,74 @@ export class App {
                 this.updateStatus();
             }
             catch (e) {
-                await this.refreshEffective();
-                toast(e instanceof ApiError ? e.message : 'That setting could not be saved.');
-                throw e;
+                await this.refreshEffective(); // show only what the service has confirmed
+                throw e instanceof ApiError ? new Error(e.message) : e;
             }
         });
+    }
+    reportAppearance() {
+        const phase = this.appearance.phase;
+        this.state.emit('appearance');
+        if (phase === 'error' && this.lastAppearancePhase !== 'error' && !this.panelOpen) {
+            const message = this.appearance.error ?? 'That setting could not be saved.';
+            toast(message, 7000);
+            announce(message, true);
+        }
+        this.lastAppearancePhase = phase;
     }
     async resetDocumentNow() {
         const s = this.session;
         if (!s)
             return;
-        this.state.effective = await this.state.api.put(`/api/doc/${s.sid}/prefs`, { reset: true });
+        const eff = await this.state.api.put(`/api/doc/${s.sid}/prefs`, { reset: true });
+        if (this.session !== s)
+            return;
+        this.state.effective = eff;
         s.docPrefs = {};
         this.applyTheme();
         s.view.appearanceChanged();
         this.state.emit('prefs');
-        toast('This document now uses your general settings.');
     }
+    /** Put this document back on the general settings. Edits not yet sent are dropped first so they cannot reappear afterwards. */
     resetDocument() {
-        return this.queueAppearance(() => this.resetDocumentNow());
+        this.appearance.discard('doc');
+        return this.appearance.track(() => this.queueAppearance(async () => {
+            try {
+                await this.resetDocumentNow();
+            }
+            catch (e) {
+                await this.refreshEffective();
+                throw e instanceof ApiError ? new Error(e.message) : e;
+            }
+        }));
     }
     resetEverything() {
-        return this.queueAppearance(async () => {
-            const res = await this.state.api.post('/api/prefs/reset', {});
-            this.state.prefs = res.values;
-            if (this.session)
-                await this.resetDocumentNow();
-            await this.refreshEffective();
-        });
+        this.appearance.discard();
+        return this.appearance.track(() => this.queueAppearance(async () => {
+            try {
+                const res = await this.state.api.post('/api/prefs/reset', {});
+                this.state.prefs = res.values;
+                if (this.session)
+                    await this.resetDocumentNow();
+                await this.refreshEffective();
+            }
+            catch (e) {
+                await this.refreshEffective();
+                throw e instanceof ApiError ? new Error(e.message) : e;
+            }
+        }));
     }
     openAppearance(anchor) { openSettings(this, anchor); }
     // ------------------------------------------------------------------ view commands
-    zoomTo(percent) { void this.setAppearance({ zoomMode: 'custom', zoom: clampZoom(percent) }, true).catch(() => undefined); }
+    zoomTo(percent) { this.commitForDocument({ zoomMode: 'custom', zoom: clampZoom(percent) }); }
     fit(mode) {
         if (mode === 'fit-page' && !this.session?.fixed && this.state.effective?.values.layout === 'continuous') {
             toast('Fit page applies to PDF pages and to paged text layouts.');
             return;
         }
-        void this.setAppearance({ zoomMode: mode }, true).catch(() => undefined); }
-    setLayout(layout) { void this.setAppearance({ layout }, true).catch(() => undefined); }
+        this.commitForDocument({ zoomMode: mode });
+    }
+    setLayout(layout) { this.commitForDocument({ layout }); }
     toggleSide(force) {
         const open = force ?? this.state.side === 'none';
         const side = open ? (this.state.prefs.sidebar !== 'none' ? this.state.prefs.sidebar : 'outline') : 'none';

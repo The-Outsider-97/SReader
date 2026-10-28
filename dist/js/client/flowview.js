@@ -730,6 +730,7 @@ export class FlowView {
         this.ctx.selection({ ...info, final });
     }
     selectedText() { return this.computeSelection()?.text ?? ''; }
+    async liveSelection() { return this.computeSelection(); }
     clearSelection() { window.getSelection()?.removeAllRanges(); this.lastSel = false; this.finalKey = ''; }
     // ------------------------------------------------------------------ clicks
     hostAt(target) {

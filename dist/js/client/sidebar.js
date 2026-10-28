@@ -2,6 +2,7 @@
 import { qs } from '../core/api.js';
 import { relativeTime } from '../core/format.js';
 import { button, clear, h, nextId, replace } from './dom.js';
+import { materialButton } from './material.js';
 import { toast } from './ui.js';
 export const TAB_LABELS = { outline: 'Contents', thumbnails: 'Pages', annotations: 'Notes', search: 'Search', assistant: 'Assistant' };
 const KIND_FILTERS = [
@@ -45,8 +46,8 @@ export class Sidebar {
     }
     render() {
         const side = this.state.side;
-        this.el.hidden = side === 'none' || !this.session;
-        if (this.el.hidden)
+        this.el.hidden = !this.session; // closing only collapses the panel (CSS slides it), so its content stays for the animation
+        if (this.el.hidden || side === 'none')
             return;
         replace(this.tabs);
         Object.keys(TAB_LABELS).forEach((id) => {
@@ -55,7 +56,8 @@ export class Sidebar {
             this.tabs.appendChild(b);
         });
         this.tabs.appendChild(h('span', { class: 'spacer' }));
-        this.tabs.appendChild(button('Close', () => this.onClose(), { cls: 'small flat', icon: '✕', title: 'Close side panel' }));
+        const close = materialButton('close', 'Close side panel', () => this.onClose(), { cls: 'side-close flat', keys: 'Ctrl+B' });
+        this.tabs.appendChild(close);
         this.panel.setAttribute('aria-labelledby', `tab-${side}`);
         switch (side) {
             case 'outline':

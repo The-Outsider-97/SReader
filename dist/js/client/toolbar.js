@@ -1,7 +1,9 @@
 // The toolbar for an open document. Built once per document; buttons are updated in place so keyboard focus is never lost.
 import { clampZoom, stepZoom } from '../core/zoom.js';
 import { button, h, nextId, setPressed } from './dom.js';
-import { popover, swatches } from './ui.js';
+import { material, materialButton, changeMaterial } from './material.js';
+import { closePopover, popover, swatches } from './ui.js';
+import { handoffDialog, infoDialog, shortcutsDialog } from './dialogs.js';
 const TOOLS = [
     { id: 'select', label: 'Select', icon: '↖', title: 'Select text', keys: 'V', needs: 'any' },
     { id: 'highlight', label: 'Highlight', icon: '▮', title: 'Highlight text', keys: 'Ctrl+Shift+H', needs: 'text' },
@@ -24,7 +26,11 @@ export class Toolbar {
     pageTotal;
     undoBtn;
     redoBtn;
-    sideBtn;
+    menuBtn;
+    toolBtn;
+    toolRow;
+    toolsOpen = false;
+    menuOpen = false;
     layoutSel;
     options;
     fitW;
@@ -45,14 +51,19 @@ export class Toolbar {
         const s = app.session;
         const cap = s.payload.capabilities;
         const g = (label, ...kids) => h('div', { class: 'group', attrs: { role: 'group', 'aria-label': label } }, ...kids.filter(Boolean));
-        let appearanceBtn;
-        let moreBtn;
-        this.sideBtn = button('Panel', () => app.toggleSide(), { icon: '☰', title: 'Show or hide the side panel', keys: 'Ctrl+B', pressed: false });
-        const row1 = h('div', { class: 'row', style: { width: '100%' } }, g('Document', button('Library', () => { void app.showLibrary(); }, { icon: '⌂', title: 'Back to your library' }), button('Open', () => { void app.openDialog(); }, { icon: '\u{1F4C2}', title: 'Open a document', keys: 'Ctrl+O' }), h('span', { class: 'title clip', text: s.payload.info.title || 'Untitled', title: s.payload.info.title })), g('Panels', this.sideBtn, button('Search', () => app.sidebar.focusSearch(), { icon: '⌕', title: 'Search in this document', keys: 'Ctrl+F' })), g('Pages', button('', () => s.view.step(-1), { icon: '◀', title: 'Previous page', keys: 'PageUp' }), (this.pageInput = h('input', { class: 'zoomval', attrs: { type: 'text', 'aria-label': 'Go to page', inputmode: 'numeric' } })), (this.pageTotal = h('span', { class: 'muted num' })), button('', () => s.view.step(1), { icon: '▶', title: 'Next page', keys: 'PageDown' })), g('Zoom', button('', () => app.zoomTo(stepZoom(s.view.zoomPercent(), -1)), { icon: '−', title: 'Zoom out', keys: 'Ctrl+-' }), (this.zoomInput = h('input', { class: 'zoomval', attrs: { type: 'text', 'aria-label': 'Zoom percent (25 to 400)', inputmode: 'numeric' } })), button('', () => app.zoomTo(stepZoom(s.view.zoomPercent(), 1)), { icon: '+', title: 'Zoom in', keys: 'Ctrl+=' }), (this.fitW = button('Fit width', () => app.fit('fit-width'), { keys: 'Ctrl+1', cls: 'small', pressed: false })), (this.fitP = button('Fit page', () => app.fit('fit-page'), { keys: 'Ctrl+2', cls: 'small', pressed: false, disabled: !s.fixed })), button('100%', () => app.zoomTo(100), { keys: 'Ctrl+0', cls: 'small' })), g('Layout', (this.layoutSel = h('select', { attrs: { 'aria-label': 'Page layout' } }, ...[['continuous', 'Continuous'], ['single', 'Single page'], ['spread', 'Two-page spread']]
-            .filter(([id]) => !cap.layouts || cap.layouts.includes(id)).map(([id, name]) => h('option', { value: id, text: name })))), button('Focus', () => app.toggleFocus(), { icon: '⛶', title: 'Distraction-free reading', keys: 'F9' })), g('Appearance', (appearanceBtn = button('Appearance', () => app.openAppearance(appearanceBtn.getBoundingClientRect()), { icon: 'Aa', title: 'Reading mode, text and layout' }))), h('span', { class: 'spacer' }), g('More', button('Export', () => app.exportDialog(), { icon: '⇩', title: 'Export or import notes' }), button('More', () => app.moreMenu(row1.querySelector('[data-more]').getBoundingClientRect()), { icon: '⋯', title: 'Document info, hand-off, shortcuts' })));
-        row1.querySelectorAll('button').forEach((b) => { if (b.getAttribute('aria-label') === 'Reading mode, text and layout')
-            b.setAttribute('data-appearance', ''); if (b.getAttribute('aria-label') === 'Document info, hand-off, shortcuts')
-            b.setAttribute('data-more', ''); });
+        const action = (name, label, click, keys) => materialButton(name, label, click, { keys });
+        const appearanceBtn = action('text_fields', 'Reading appearance', () => app.openAppearance(appearanceBtn.getBoundingClientRect()));
+        this.toolBtn = action('pen', 'Show annotation tools', () => this.toggleTools());
+        this.toolBtn.setAttribute('aria-controls', 'reader-annotation-toolbar');
+        this.toolBtn.setAttribute('aria-expanded', 'false');
+        this.menuBtn = action('menu', 'Open menu', () => this.toggleMenu());
+        this.menuBtn.setAttribute('aria-controls', 'reader-actions-menu');
+        this.menuBtn.setAttribute('aria-expanded', 'false');
+        const title = s.payload.info.title || 'Untitled document';
+        const identity = h('div', { class: 'reader-identity', attrs: { 'aria-label': 'Open document' } }, material('description'), h('span', { class: 'title clip', text: title, title }));
+        const primary = h('div', { class: 'reader-primary' }, g('Document', action('home', 'Back to library', () => { void app.showLibrary(); }), action('folder_open', 'Open document', () => { void app.openDialog(); }, 'Ctrl+O'), identity), g('Pages', action('chevron_left', 'Previous page', () => s.view.step(-1), 'PageUp'), (this.pageInput = h('input', { class: 'zoomval', attrs: { type: 'text', 'aria-label': 'Go to page', inputmode: 'numeric' } })), (this.pageTotal = h('span', { class: 'muted num' })), action('chevron_right', 'Next page', () => s.view.step(1), 'PageDown')), g('Zoom', action('remove', 'Zoom out', () => app.zoomTo(stepZoom(s.view.zoomPercent(), -1)), 'Ctrl+-'), (this.zoomInput = h('input', { class: 'zoomval', attrs: { type: 'text', 'aria-label': 'Zoom percent (25 to 400)', inputmode: 'numeric' } })), action('add', 'Zoom in', () => app.zoomTo(stepZoom(s.view.zoomPercent(), 1)), 'Ctrl+='), (this.fitW = button('Fit width', () => app.fit('fit-width'), { cls: 'small fit-control', pressed: false })), (this.fitP = button('Fit page', () => app.fit('fit-page'), { cls: 'small fit-control', pressed: false, disabled: !s.fixed }))), g('Layout', (this.layoutSel = h('select', { attrs: { 'aria-label': 'Page layout' } }, ...[['continuous', 'Continuous'], ['single', 'Single page'], ['spread', 'Two-page spread']]
+            .filter(([id]) => !cap.layouts || cap.layouts.includes(id))
+            .map(([id, name]) => h('option', { value: id, text: name }))))), g('Actions', action('search', 'Search document', () => app.sidebar.focusSearch(), 'Ctrl+F'), appearanceBtn, this.toolBtn, this.menuBtn));
         this.layoutSel.addEventListener('change', () => app.setLayout(this.layoutSel.value));
         this.zoomInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') {
             e.preventDefault();
@@ -66,9 +77,10 @@ export class Toolbar {
             app.goPageNumber(this.pageInput.value);
         } });
         this.pageInput.addEventListener('blur', () => this.update());
-        const tools = h('div', { class: 'group', attrs: { role: 'group', 'aria-label': 'Annotation tools' } });
+        const tools = h('div', { class: 'group annotation-tools', attrs: { role: 'group', 'aria-label': 'Annotation tools' } });
         for (const t of TOOLS) {
             const b = button(t.label, () => app.pickTool(t.id), { icon: t.icon, title: t.title, keys: t.keys, pressed: t.id === 'select' });
+            b.querySelector('.ico')?.replaceWith(material(t.id));
             this.tools.set(t.id, b);
             const why = this.unavailable(t.needs);
             if (why) {
@@ -77,14 +89,64 @@ export class Toolbar {
             }
             tools.appendChild(b);
         }
-        const note = button('Note', () => app.noteOnSelection(), { icon: '\u{1F5C8}', title: 'Add a note to the selected text', keys: 'Ctrl+Shift+N', disabled: !!this.unavailable('text') });
+        const note = button('Note', () => app.noteOnSelection(), { icon: '▤', title: 'Add a note to selected text', disabled: !!this.unavailable('text') });
+        note.querySelector('.ico')?.replaceWith(material('note'));
         tools.appendChild(note);
         this.undoBtn = button('Undo', () => { void s.undo(); }, { icon: '↶', title: 'Undo', keys: 'Ctrl+Z' });
         this.redoBtn = button('Redo', () => { void s.redo(); }, { icon: '↷', title: 'Redo', keys: 'Ctrl+Y' });
+        this.undoBtn.querySelector('.ico')?.replaceWith(material('undo'));
+        this.redoBtn.querySelector('.ico')?.replaceWith(material('redo'));
         this.options = h('div', { class: 'group', attrs: { 'aria-label': 'Tool options', role: 'group' } });
-        const row2 = h('div', { class: 'row', style: { width: '100%' } }, tools, g('History', this.undoBtn, this.redoBtn, button('Bookmark', () => { void s.toggleBookmark(); }, { icon: '⚑', title: 'Bookmark this place', keys: 'Ctrl+D' })), this.options);
-        this.el.append(row1, row2);
+        this.toolRow = h('div', { class: 'reader-tools', id: 'reader-annotation-toolbar', hidden: true }, tools, g('History', this.undoBtn, this.redoBtn, action('bookmark', 'Bookmark this page', () => { void s.toggleBookmark(); }, 'Ctrl+D')), this.options);
+        this.el.append(primary, this.toolRow);
         this.update();
+    }
+    toggleTools() {
+        this.toolsOpen = !this.toolsOpen;
+        this.toolRow.hidden = !this.toolsOpen;
+        this.toolBtn.setAttribute('aria-expanded', String(this.toolsOpen));
+        this.toolBtn.setAttribute('aria-label', this.toolsOpen ? 'Hide annotation tools' : 'Show annotation tools');
+        setPressed(this.toolBtn, this.toolsOpen);
+    }
+    toggleMenu() {
+        if (this.menuOpen) {
+            closePopover();
+            return;
+        }
+        const app = this.app;
+        const s = app.session;
+        if (!s)
+            return;
+        const menu = h('div', { class: 'menu reader-menu', id: 'reader-actions-menu', attrs: { role: 'menu', 'aria-label': 'Reader actions' } });
+        const sections = [
+            ['File', [['Open document', () => { void app.openDialog(); }], ['Export or import notes', () => app.exportDialog()],
+                    ['Document information', () => infoDialog(s)],
+                    ['Reload document', () => { void app.reload(); }], ['Close document', () => { void app.showLibrary(); }]]],
+            ['View', [['Reading appearance', () => app.openAppearance(this.menuBtn.getBoundingClientRect())],
+                    ['Distraction-free mode', () => app.toggleFocus()], ['Fit width', () => app.fit('fit-width')],
+                    ['Fit page', () => app.fit('fit-page')], ['Reset zoom to 100%', () => app.zoomTo(100)]]],
+            ['Tools', [['Annotation toolbar', () => this.toggleTools()], ['Keyboard shortcuts', () => shortcutsDialog()],
+                    ['Open in Writer or Documaster', () => handoffDialog(s)]]],
+        ];
+        for (const [heading, items] of sections) {
+            menu.appendChild(h('div', { class: 'reader-menu-heading', text: heading }));
+            for (const [label, run] of items)
+                menu.appendChild(h('button', { text: label, attrs: { role: 'menuitem', type: 'button' },
+                    on: { click: () => { pop.close(); run(); } } }));
+        }
+        const pop = popover(this.menuBtn.getBoundingClientRect(), menu, {
+            label: 'Reader menu', onClose: () => {
+                this.menuOpen = false;
+                this.menuBtn.setAttribute('aria-expanded', 'false');
+                this.menuBtn.setAttribute('aria-label', 'Open menu');
+                changeMaterial(this.menuBtn, 'menu');
+            },
+        });
+        this.menuOpen = true;
+        this.menuBtn.setAttribute('aria-expanded', 'true');
+        this.menuBtn.setAttribute('aria-label', 'Close menu');
+        changeMaterial(this.menuBtn, 'close');
+        menu.querySelector('button')?.focus();
     }
     unavailable(needs) {
         const cap = this.app.session.payload.capabilities;
@@ -102,7 +164,8 @@ export class Toolbar {
         const st = app.state;
         for (const [id, b] of this.tools)
             setPressed(b, st.tool === id);
-        setPressed(this.sideBtn, st.side !== 'none');
+        if (st.tool !== 'select' && !this.toolsOpen)
+            this.toggleTools();
         this.undoBtn.disabled = !st.history.canUndo;
         this.undoBtn.title = st.history.undoLabel ? `Undo ${st.history.undoLabel} (Ctrl+Z)` : 'Nothing to undo';
         this.redoBtn.disabled = !st.history.canRedo;
