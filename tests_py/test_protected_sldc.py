@@ -44,6 +44,10 @@ class ProtectedSLDCTests(unittest.TestCase):
                 with self.assertRaises(DependencyMissing) as missing_crypto:
                     _open_sldc(path, "hash", size, "correct horse", settings)
             self.assertIn("cryptography", str(missing_crypto.exception))
+            with patch.object(sldc, "read_package", side_effect=sldc.SLDCDependencyError("scrypt is unavailable in this Python build")):
+                with self.assertRaises(DependencyMissing) as missing_scrypt:
+                    _open_sldc(path, "hash", size, "correct horse", settings)
+            self.assertIn("scrypt is unavailable", str(missing_scrypt.exception))
 
     def test_http_open_and_native_picker_use_password_retry_contract(self):
         from src.utils import sldc
