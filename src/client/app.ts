@@ -239,7 +239,12 @@ export class App implements AppearanceHost {
       if (pw !== null) await retry(pw);
       return;
     }
-    const message = e instanceof ApiError ? e.message : 'The document could not be opened.';
+    // A normal missing cryptography dependency has a structured message from
+    // the Reader service.  If an older/misconfigured service returns a bare
+    // HTTP 501 instead, show an actionable diagnostic rather than only "(501)".
+    const message = e instanceof ApiError && e.status === 501 && e.code === 'error'
+      ? 'Reader returned HTTP 501 without an error description. When opening a protected SLDC, check that cryptography is installed in the Python environment running Reader, then restart Reader. Consult the Reader console if the error persists.'
+      : e instanceof ApiError ? e.message : 'The document could not be opened.';
     if (this.library) this.library.showMessage(message, 'bad'); else toast(message, 7000);
     announce(message, true);
   }
