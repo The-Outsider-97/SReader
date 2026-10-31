@@ -156,7 +156,13 @@ def upload(app: ReaderApp, req: Request) -> Response:
 def pick(app: ReaderApp, req: Request) -> Response:
     res = pick_file()
     if res.get("path"):
-        s = app.sessions.open_path(res["path"])
+        try:
+            s = app.sessions.open_path(res["path"])
+        except PasswordRequired:
+            # The OS picker supplies only the path, not a password.  Let the
+            # client repeat the ordinary /api/open flow so its password dialog
+            # and retry logic work; never return a session for locked content.
+            return ok({"picked": res["path"], "passwordRequired": True})
         return ok({"picked": res["path"], **_payload(app, s, _dark(req))})
     return ok({"picked": None, "unavailable": res.get("error") == "no-dialog", "detail": res.get("detail")})
 
