@@ -70,7 +70,11 @@ def _open_sldc(path: Path, fingerprint: str, size: int, password: str | None, se
     except s.SLDCDecryptionError as exc:
         raise (WrongPassword("That password does not unlock this SLDC document") if password else PasswordRequired("This SLDC document is encrypted")) from exc
     except s.SLDCDependencyError as exc:
-        raise DependencyMissing("Reading an encrypted SLDC needs the 'cryptography' package (pip install cryptography)") from exc
+        # SLDCDependencyError also covers an unavailable scrypt implementation
+        # or OpenSSL resource failure, even when cryptography is installed.
+        # Preserve its actionable diagnostic instead of falsely blaming the
+        # cryptography package for every HTTP 501 on an encrypted document.
+        raise DependencyMissing(f"The encrypted SLDC could not be unlocked by this Python runtime: {exc}") from exc
     except s.SLDCUnsupportedError as exc:
         raise UnsupportedFormat(str(exc)) from exc
     except s.SLDCIntegrityError as exc:

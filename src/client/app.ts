@@ -227,8 +227,11 @@ export class App implements AppearanceHost {
 
   async browse(): Promise<void> {
     try {
-      const res = await this.state.api.post<(DocPayload & { picked: string | null; unavailable?: boolean; detail?: string }) | { picked: null; unavailable?: boolean; detail?: string }>('/api/pick', {});
-      if ('sid' in res && res.picked) await this.openPayload(res);
+      const res = await this.state.api.post<(DocPayload & { picked: string | null; unavailable?: boolean; detail?: string }) | { picked: string | null; passwordRequired?: boolean; unavailable?: boolean; detail?: string }>('/api/pick', {});
+      if (res.picked) {
+        if ('sid' in res) await this.openPayload(res);
+        else await this.openPath(res.picked); // The protected file reuses the password prompt and retry from /api/open.
+      }
       else if (res.unavailable) toast('The system file dialog is not available here. Type the path, or use \u201CChoose a file\u201D.');
     } catch (e) { await this.openFailed(e, () => Promise.resolve()); }
   }

@@ -269,8 +269,12 @@ export class App {
     async browse() {
         try {
             const res = await this.state.api.post('/api/pick', {});
-            if ('sid' in res && res.picked)
-                await this.openPayload(res);
+            if (res.picked) {
+                if ('sid' in res)
+                    await this.openPayload(res);
+                else
+                    await this.openPath(res.picked); // The protected file reuses the password prompt and retry from /api/open.
+            }
             else if (res.unavailable)
                 toast('The system file dialog is not available here. Type the path, or use \u201CChoose a file\u201D.');
         }
