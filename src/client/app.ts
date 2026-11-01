@@ -8,11 +8,10 @@ import type { DocPayload, Effective, Prefs, Location, ZoomMode } from '../core/t
 import { exportDialog, gotoDialog, handoffDialog, infoDialog, shortcutsDialog } from './dialogs.js';
 import { announce, button, clear, h, replace } from './dom.js';
 import { LibraryPage } from './library.js';
-import { changeMaterial, materialButton } from './material.js';
 import { ReaderSession } from './reader.js';
 import { openSettings, type AppearanceHost } from './settings.js';
 import { Sidebar } from './sidebar.js';
-import { AppState, type Tool } from './state.js';
+import { AppState, type SideTab, type Tool } from './state.js';
 import { Toolbar } from './toolbar.js';
 import { askPassword, closePopover, confirmDialog, dialog, popoverOpen, toast } from './ui.js';
 
@@ -25,6 +24,9 @@ export class App implements AppearanceHost {
   docOnly = false;
   sidebar!: Sidebar;
   private toolbar: Toolbar | null = null;
+  private lastSide: Exclude<SideTab, 'none'> = 'outline';
+  private offSide: (() => void) | null = null;
+  private offAnnotations: (() => void) | null = null;
   private library: LibraryPage | null = null;
   private banners = h('div', { class: 'banners', attrs: { 'aria-live': 'polite' } });
   private status = h('footer', { class: 'status' });
@@ -41,7 +43,7 @@ export class App implements AppearanceHost {
   constructor(private readonly root: HTMLElement, state: AppState) {
     this.state = state;
     state.api.dark = () => this.mq.matches;
-    this.sidebar = new Sidebar(state, () => this.toggleSide(false));
+    this.sidebar = new Sidebar(state, (section) => this.selectSide(section));
   }
 
   // ------------------------------------------------------------------ start
@@ -133,29 +135,32 @@ export class App implements AppearanceHost {
     clear(this.root); clear(this.banners);
     this.root.className = 'app';
     this.toolbar = new Toolbar(this);
-    this.sidebar.attach(session);
     this.state.side = this.state.prefs.sidebar;
+    if (this.state.side !== 'none') this.lastSide = this.state.side;
+    this.sidebar.attach(session);
     const main = h('div', { class: 'main' }, this.banners, session.view.el);
     this.buildStatus();
-    const edge = materialButton('arrow_forward_ios', 'Show side panel', () => this.toggleSide(), { cls: 'side-edge-toggle' });
-    edge.setAttribute('aria-controls', 'reader-side-panel');
     this.sidebar.el.id = 'reader-side-panel';
-    const body = h('div', { class: 'body reader-workspace' }, this.sidebar.el, edge, main);
+    const body = h('div', { class: 'body reader-workspace' }, this.sidebar.el, main);
+    // This listener also synchronizes sidebar changes initiated by annotation controls.
     const syncSide = (): void => {
-      const opened = this.state.side !== 'none';
-      body.classList.toggle('side-visible', opened);
-      edge.setAttribute('aria-expanded', String(opened));
-      edge.setAttribute('aria-label', opened ? 'Hide side panel' : 'Show side panel');
-      edge.title = opened ? 'Hide side panel (Ctrl+B)' : 'Show side panel (Ctrl+B)';
-      changeMaterial(edge, opened ? 'arrow_back_ios_new' : 'arrow_forward_ios');
+      const side = this.state.side;
+      body.classList.toggle('side-visible', side !== 'none');
+      if (side !== 'none') this.lastSide = side;
+      if (this.state.prefs.sidebar !== side) {
+        this.state.prefs.sidebar = side;
+        void this.state.api.put('/api/prefs', { sidebar: side }).catch(() => undefined);
+      }
     };
-    this.state.on('side', syncSide);
+    this.offSide?.();
+    this.offSide = this.state.on('side', syncSide);
     this.root.append(this.toolbar.el, body, this.status);
     syncSide();
     document.title = `${p.info.title || 'Document'} \u2013 SLAI Reader`;
     this.library = null;
     this.sidebar.render();
-    this.state.on('annotations', () => session.view.annotationsChanged());
+    this.offAnnotations?.();
+    this.offAnnotations = this.state.on('annotations', () => { if (this.session === session) session.view.annotationsChanged(); });
     await session.start();
     this.toolbar.update();
     this.updateStatus();
@@ -202,6 +207,8 @@ export class App implements AppearanceHost {
     closePopover();
     await this.appearance.flush();                       // settings changed for this document are saved to it before it is closed
     this.session = null;
+    this.offSide?.(); this.offSide = null;
+    this.offAnnotations?.(); this.offAnnotations = null;
     this.state.doc = null;
     this.state.annotations = [];
     this.sidebar.attach(null);
@@ -390,12 +397,12 @@ export class App implements AppearanceHost {
     this.commitForDocument({ zoomMode: mode });
   }
   setLayout(layout: Prefs['layout']): void { this.commitForDocument({ layout }); }
+  /** Shared entry point for rail buttons and existing keyboard/toolbar navigation. */
+  private selectSide(side: SideTab): void { this.state.setSide(side); }
+
   toggleSide(force?: boolean): void {
     const open = force ?? this.state.side === 'none';
-    const side = open ? (this.state.prefs.sidebar !== 'none' ? this.state.prefs.sidebar : 'outline') : 'none';
-    this.state.prefs.sidebar = side;
-    this.state.setSide(side);
-    void this.state.api.put('/api/prefs', { sidebar: side }).catch(() => undefined);
+    this.selectSide(open ? this.lastSide : 'none');
   }
   toggleFocus(): void {
     this.state.focusMode = !this.state.focusMode;
