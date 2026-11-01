@@ -119,7 +119,7 @@ class WorkflowC(E2E):
         # the notes panel counts drawings
         self.click_tool("button[aria-label='Select text']")
         self.toggle_side()
-        pg.click("[role=tab]:has-text('Notes')")
+        self.select_side("Notes")
         pg.click(".filters button:has-text('Drawings')")
         expect(pg.locator(".side .ann")).to_have_count(1)                  # strokes drawn together are listed as one piece of handwriting
         expect(pg.locator(".side .ann strong")).to_have_text("Drawing (3 strokes)")

@@ -154,11 +154,34 @@ class E2E(unittest.TestCase):
         self.page.click(f".toolbar {selector}")
 
     def toggle_side(self) -> None:
-        """Flip the side panel and wait until the edge toggle reports the new state (the panel slides, so do not race it)."""
+        """Toggle the drawer; the rail always remains visible."""
         pg = self.page
-        before = pg.get_attribute("button.side-edge-toggle", "aria-expanded")
-        pg.click("button.side-edge-toggle")
-        pg.wait_for_function("(b) => document.querySelector('button.side-edge-toggle').getAttribute('aria-expanded') !== b", arg=before)
+        opened = pg.locator(".reader-workspace").evaluate("e => e.classList.contains('side-visible')")
+        if opened:
+            pg.click(".side-header .side-close")
+        else:
+            pg.click("#reader-rail-outline")
+        pg.wait_for_function(
+            "(before) => document.querySelector('.reader-workspace').classList.contains('side-visible') !== before",
+            arg=opened,
+        )
+
+    def select_side(self, label: str) -> None:
+        """Switch directly to a named sidebar section."""
+        section = {
+            "Contents": "outline",
+            "Pages": "thumbnails",
+            "Notes": "annotations",
+            "Search": "search",
+            "Assistant": "assistant",
+        }[label]
+        control = self.page.locator(f"#reader-rail-{section}")
+        if control.get_attribute("aria-expanded") != "true":
+            control.click()
+        self.page.wait_for_function(
+            "(section) => document.querySelector('#reader-rail-' + section).getAttribute('aria-expanded') === 'true'",
+            arg=section,
+        )
 
     def open_appearance(self) -> None:
         pg = self.page

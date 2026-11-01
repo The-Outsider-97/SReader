@@ -81,7 +81,7 @@ class WorkflowH(E2E):
         self.open_pdf()
         self.toggle_side()
         for tab in ("Contents", "Pages", "Notes", "Search"):
-            pg.click(f"[role=tab]:text-is('{tab}')")
+            self.select_side(tab)
             pg.wait_for_timeout(300)
             bad = self.unnamed_controls()
             self.assertEqual(self.describe_nodes(bad), [], f"{tab} panel: unnamed controls")
@@ -114,7 +114,7 @@ class WorkflowH(E2E):
         pg = self.page
         self.open_pdf()
         self.toggle_side()
-        pg.click("[role=tab]:text-is('Notes')")
+        self.select_side("Notes")
         self.drag_words(5, 9)
         pg.click(".seltoolspop button[aria-label='Add a note to the selection']")
         pg.fill(".noteedit textarea", "Contrast check note")

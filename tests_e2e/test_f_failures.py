@@ -54,7 +54,7 @@ class WorkflowF(E2E):
         pg = self.page
         self.open(fx.make_scanned_pdf(self.docs / "scan.pdf", pages=2))
         self.toggle_side()
-        pg.click("[role=tab]:text-is('Search')")
+        self.select_side("Search")
         pg.fill("input[aria-label='Search in this document']", "anything")
         pg.wait_for_selector("#search-status:has-text('scan')")
         self.assertIn("does not run OCR", pg.inner_text("#search-status"))

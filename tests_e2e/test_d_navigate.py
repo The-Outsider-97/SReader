@@ -15,10 +15,7 @@ class WorkflowD(E2E):
         self.open(self.pdf)
 
     def side(self, tab: str) -> None:
-        pg = self.page
-        if not pg.locator(".side").is_visible():
-            self.toggle_side()
-        pg.click(f"[role=tab]:text-is('{tab}')")
+        self.select_side(tab)
 
     def test_contents_pages_and_goto(self):
         pg = self.page
