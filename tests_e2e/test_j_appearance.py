@@ -150,7 +150,7 @@ class AppearancePanel(E2E):
         pg.wait_for_function("() => document.documentElement.classList.contains('reduce-motion')")
         self.wait_saved()
         self.assertTrue(self.saved_prefs()["reduceMotion"])
-        dur = pg.evaluate("() => [getComputedStyle(document.querySelector('.side')).transitionDuration, getComputedStyle(document.querySelector('.side-edge-toggle')).transitionDuration]")
+        dur = pg.evaluate("() => [getComputedStyle(document.querySelector('.side')).transitionDuration, getComputedStyle(document.querySelector('.side-drawer')).transitionDuration]")
         self.assertEqual(dur, ["0s", "0s"], "no sliding when the person asked for less motion")
 
     def test_motion_is_short_by_default_and_off_when_the_system_asks_for_less(self) -> None:
@@ -406,29 +406,25 @@ class AppearancePanel(E2E):
 
 
 class SidePanelAndHeader(E2E):
-    def test_edge_toggle_follows_the_panel_boundary_with_the_right_icons(self) -> None:
+    def test_rail_remains_visible_when_drawer_collapses(self) -> None:
         pg = self.page
-        self.open(fx.make_sldc(self.docs / ("a-very-long-file-name-" + "x" * 90 + ".sldc"), title="A very long title " * 8))
-        toggle = pg.locator("button.side-edge-toggle")
-        self.assertEqual(toggle.get_attribute("aria-label"), "Show side panel")
-        self.assertEqual(toggle.get_attribute("aria-expanded"), "false")
-        toggle.click()
+        self.open(fx.make_sldc(self.docs / ("a-very-long-file-name-" + "x" * 90 + ".sldc"),
+                               title="A very long title " * 8))
+        rail = pg.locator(".side-rail")
+        self.assertTrue(rail.is_visible())
+        self.select_side("Contents")
         pg.wait_for_timeout(350)
-        self.assertEqual(toggle.get_attribute("aria-label"), "Hide side panel")
-        side = pg.locator(".side").bounding_box()
-        edge = toggle.bounding_box()
-        self.assertAlmostEqual(edge["x"], side["x"] + side["width"], delta=2, msg="the toggle sits on the panel's right edge")
+        self.assertEqual(pg.locator("#reader-side-title").inner_text(), "Contents")
+        self.assertGreater(pg.locator(".side").bounding_box()["width"], 250)
         self.shot("J5_sidebar_open_long_title")
-        # the header never overflows horizontally, however long the title is
-        over = pg.evaluate("() => document.documentElement.scrollWidth - innerWidth")
-        self.assertLessEqual(over, 0)
-        pg.click("button.side-edge-toggle")
+        self.assertLessEqual(pg.evaluate("() => document.documentElement.scrollWidth - innerWidth"), 0)
+        pg.click("#reader-rail-outline")
         pg.wait_for_timeout(350)
-        expect(pg.locator(".side")).to_be_hidden()
-        self.assertEqual(pg.locator("button.side-edge-toggle").bounding_box()["x"], 0)
-        # a hidden panel cannot take keyboard focus
+        self.assertTrue(rail.is_visible())
+        self.assertEqual(pg.locator(".side-drawer").get_attribute("aria-hidden"), "true")
+        self.assertLessEqual(pg.locator(".side").bounding_box()["width"], 54)
         pg.keyboard.press("Tab")
-        self.assertFalse(pg.evaluate("() => !!document.activeElement.closest('.side')"))
+        self.assertFalse(pg.evaluate("() => !!document.activeElement.closest('.side-drawer')"))
 
 
 if __name__ == "__main__":

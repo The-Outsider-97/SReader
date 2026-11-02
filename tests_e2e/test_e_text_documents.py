@@ -96,7 +96,7 @@ class WorkflowE(E2E):
         pg.click(".banner button:has-text('Reload')")
         pg.wait_for_selector(".status >> text=1 annotation")
         self.toggle_side()
-        pg.click("[role=tab]:text-is('Notes')")
+        self.select_side("Notes")
         chips = pg.locator(".side .ann .chip").all_inner_texts()
         shown = pg.evaluate("() => [...document.querySelectorAll('#view .mark')].map(e => e.textContent).join('')")
         self.assertTrue("moved" in chips or "text not found" in chips, f"a changed passage must be flagged, got {chips}")
@@ -158,7 +158,7 @@ class WorkflowE(E2E):
         pg = self.page
         self.open(fx.make_epub(self.docs / "book.epub", chapters=4))
         self.toggle_side()
-        pg.click("[role=tab]:text-is('Contents')")
+        self.select_side("Contents")
         pg.wait_for_selector(".outline button.item")
         n = pg.locator(".outline button.item").count()
         self.assertGreaterEqual(n, 4)

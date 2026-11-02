@@ -4,6 +4,11 @@ import type { Annotation, AnnotationList, DocPayload, Effective, HistoryState, I
 
 export type Tool = 'select' | 'highlight' | 'underline' | 'strike' | 'note' | 'sticky' | 'pen' | 'pencil' | 'highlighter' | 'eraser' | 'move';
 export type SideTab = 'none' | 'outline' | 'thumbnails' | 'annotations' | 'search' | 'assistant';
+/** Navigation state for the permanent Reader rail. */
+export function activateSide(current: SideTab, selected: Exclude<SideTab, 'none'>): SideTab {
+  return current === selected ? 'none' : selected;
+}
+
 
 type Listener = () => void;
 export class Emitter<E extends string> {
@@ -44,7 +49,7 @@ export class AppState extends Emitter<StateEvent> {
   constructor(api: Api) { super(); this.api = api; }
 
   setTool(t: Tool): void { if (this.tool !== t) { this.tool = t; this.emit('tool'); } }
-  setSide(s: SideTab): void { this.side = s; this.emit('side'); }
+  setSide(s: SideTab): void { if (this.side !== s) { this.side = s; this.emit('side'); } }
 
   setAnnotations(list: AnnotationList): void {
     this.annotations = list.annotations;

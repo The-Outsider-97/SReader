@@ -52,7 +52,7 @@ class WorkflowB(E2E):
 
         # the notes panel lists them in reading order and filters work
         self.toggle_side()
-        pg.click("[role=tab]:has-text('Notes')")
+        self.select_side("Notes")
         expect(pg.locator(".side .ann")).to_have_count(4)
         pg.fill("input[aria-label='Filter annotations']", "claim")
         expect(pg.locator(".side .ann")).to_have_count(1)
@@ -101,7 +101,7 @@ class WorkflowB(E2E):
         pg.click(".seltoolspop button[aria-label='Highlight colour #facc15']")
         pg.wait_for_selector(".status >> text=1 annotation")
         self.toggle_side()
-        pg.click("[role=tab]:has-text('Notes')")
+        self.select_side("Notes")
         pg.click(".side .ann button:has-text('Edit')")
         pg.click(".popover button[aria-label$='#f9a8d4']")
         pg.wait_for_timeout(600)
