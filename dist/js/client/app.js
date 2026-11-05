@@ -7,7 +7,6 @@ import { clampZoom, stepZoom } from '../core/zoom.js';
 import { exportDialog, gotoDialog, handoffDialog, infoDialog, shortcutsDialog } from './dialogs.js';
 import { announce, button, clear, h, replace } from './dom.js';
 import { LibraryPage } from './library.js';
-import { changeMaterial, materialButton } from './material.js';
 import { ReaderSession } from './reader.js';
 import { openSettings } from './settings.js';
 import { Sidebar } from './sidebar.js';
@@ -20,6 +19,9 @@ export class App {
     docOnly = false;
     sidebar;
     toolbar = null;
+    lastSide = 'outline';
+    offSide = null;
+    offAnnotations = null;
     library = null;
     banners = h('div', { class: 'banners', attrs: { 'aria-live': 'polite' } });
     status = h('footer', { class: 'status' });
@@ -36,7 +38,7 @@ export class App {
         this.root = root;
         this.state = state;
         state.api.dark = () => this.mq.matches;
-        this.sidebar = new Sidebar(state, () => this.toggleSide(false));
+        this.sidebar = new Sidebar(state, (section) => this.selectSide(section));
     }
     // ------------------------------------------------------------------ start
     async boot() {
@@ -49,6 +51,7 @@ export class App {
             this.state.highlightColor = p.values.highlightColors[0] ?? '#facc15';
         }
         catch (e) {
+            window.dispatchEvent(new CustomEvent('slai:startup-error', { detail: e instanceof Error ? e.message : 'Reader could not be reached.' }));
             replace(this.root, h('main', { class: 'library' }, h('h1', { text: 'SLAI Reader' }), h('div', { class: 'banner bad', attrs: { role: 'alert' } }, h('div', { class: 'grow', text: e instanceof ApiError ? e.message : 'Reader could not be reached.' }), h('div', { class: 'small', text: 'Open the address Reader printed when it started, including the part after \u201C?token=\u201D.' }))));
             return;
         }
@@ -72,6 +75,7 @@ export class App {
             await this.openPayload(startup.opened[0]);
         else
             await this.showLibrary();
+        window.dispatchEvent(new Event('slai:ready'));
         for (const n of notes)
             this.banner(n, 'info');
         for (const pr of startup.problems) {
@@ -143,29 +147,35 @@ export class App {
         clear(this.banners);
         this.root.className = 'app';
         this.toolbar = new Toolbar(this);
-        this.sidebar.attach(session);
         this.state.side = this.state.prefs.sidebar;
+        if (this.state.side !== 'none')
+            this.lastSide = this.state.side;
+        this.sidebar.attach(session);
         const main = h('div', { class: 'main' }, this.banners, session.view.el);
         this.buildStatus();
-        const edge = materialButton('arrow_forward_ios', 'Show side panel', () => this.toggleSide(), { cls: 'side-edge-toggle' });
-        edge.setAttribute('aria-controls', 'reader-side-panel');
         this.sidebar.el.id = 'reader-side-panel';
-        const body = h('div', { class: 'body reader-workspace' }, this.sidebar.el, edge, main);
+        const body = h('div', { class: 'body reader-workspace' }, this.sidebar.el, main);
+        // This listener also synchronizes sidebar changes initiated by annotation controls.
         const syncSide = () => {
-            const opened = this.state.side !== 'none';
-            body.classList.toggle('side-visible', opened);
-            edge.setAttribute('aria-expanded', String(opened));
-            edge.setAttribute('aria-label', opened ? 'Hide side panel' : 'Show side panel');
-            edge.title = opened ? 'Hide side panel (Ctrl+B)' : 'Show side panel (Ctrl+B)';
-            changeMaterial(edge, opened ? 'arrow_back_ios_new' : 'arrow_forward_ios');
+            const side = this.state.side;
+            body.classList.toggle('side-visible', side !== 'none');
+            if (side !== 'none')
+                this.lastSide = side;
+            if (this.state.prefs.sidebar !== side) {
+                this.state.prefs.sidebar = side;
+                void this.state.api.put('/api/prefs', { sidebar: side }).catch(() => undefined);
+            }
         };
-        this.state.on('side', syncSide);
+        this.offSide?.();
+        this.offSide = this.state.on('side', syncSide);
         this.root.append(this.toolbar.el, body, this.status);
         syncSide();
         document.title = `${p.info.title || 'Document'} \u2013 SLAI Reader`;
         this.library = null;
         this.sidebar.render();
-        this.state.on('annotations', () => session.view.annotationsChanged());
+        this.offAnnotations?.();
+        this.offAnnotations = this.state.on('annotations', () => { if (this.session === session)
+            session.view.annotationsChanged(); });
         await session.start();
         this.toolbar.update();
         this.updateStatus();
@@ -231,6 +241,10 @@ export class App {
         closePopover();
         await this.appearance.flush(); // settings changed for this document are saved to it before it is closed
         this.session = null;
+        this.offSide?.();
+        this.offSide = null;
+        this.offAnnotations?.();
+        this.offAnnotations = null;
         this.state.doc = null;
         this.state.annotations = [];
         this.sidebar.attach(null);
@@ -473,12 +487,11 @@ export class App {
         this.commitForDocument({ zoomMode: mode });
     }
     setLayout(layout) { this.commitForDocument({ layout }); }
+    /** Shared entry point for rail buttons and existing keyboard/toolbar navigation. */
+    selectSide(side) { this.state.setSide(side); }
     toggleSide(force) {
         const open = force ?? this.state.side === 'none';
-        const side = open ? (this.state.prefs.sidebar !== 'none' ? this.state.prefs.sidebar : 'outline') : 'none';
-        this.state.prefs.sidebar = side;
-        this.state.setSide(side);
-        void this.state.api.put('/api/prefs', { sidebar: side }).catch(() => undefined);
+        this.selectSide(open ? this.lastSide : 'none');
     }
     toggleFocus() {
         this.state.focusMode = !this.state.focusMode;

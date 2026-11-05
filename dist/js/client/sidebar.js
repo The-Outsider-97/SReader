@@ -3,8 +3,17 @@ import { qs } from '../core/api.js';
 import { relativeTime } from '../core/format.js';
 import { button, clear, h, nextId, replace } from './dom.js';
 import { materialButton } from './material.js';
+import { activateSide } from './state.js';
 import { toast } from './ui.js';
 export const TAB_LABELS = { outline: 'Contents', thumbnails: 'Pages', annotations: 'Notes', search: 'Search', assistant: 'Assistant' };
+/** Reuse Reader's existing offline Material icon collection. */
+const RAIL_ICONS = {
+    outline: 'menu',
+    thumbnails: 'description',
+    annotations: 'bookmark',
+    search: 'search',
+    assistant: 'highlight',
+};
 const KIND_FILTERS = [
     { id: 'all', label: 'All', test: () => true },
     { id: 'marks', label: 'Highlights', test: (a) => ['highlight', 'underline', 'strike'].includes(a.kind) },
@@ -15,50 +24,100 @@ const KIND_FILTERS = [
 const KIND_NAME = { highlight: 'Highlight', underline: 'Underline', strike: 'Strikethrough', note: 'Note', sticky: 'Sticky note', ink: 'Drawing', shape: 'Shape', bookmark: 'Bookmark' };
 export class Sidebar {
     state;
-    onClose;
+    onSelect;
     el;
-    tabs;
+    rail;
+    drawer;
+    header;
     panel;
+    railButtons = new Map();
+    lastActive = 'outline';
+    generation = 0;
+    searchRequest = 0;
     session = null;
     outline = null;
     filter = { kind: 'all', text: '', tag: '', sort: 'position' };
     search = { query: '', caseSensitive: false, result: null, current: -1, notes: [], busy: false, timer: 0, error: '' };
     assist = { status: null, result: null, busy: false, error: '', question: '', scope: 'selection', checked: null, passages: null };
-    constructor(state, onClose) {
+    constructor(state, onSelect) {
         this.state = state;
-        this.onClose = onClose;
-        this.tabs = h('div', { class: 'tabs', attrs: { role: 'tablist', 'aria-label': 'Side panel' } });
-        this.panel = h('div', { class: 'panel', attrs: { role: 'tabpanel', tabindex: 0 } });
-        this.el = h('aside', { class: 'side', attrs: { 'aria-label': 'Side panel' } }, this.tabs, this.panel);
+        this.onSelect = onSelect;
+        // Keep the rail buttons mounted so switching panels never destroys their focus.
+        this.rail = h('nav', { class: 'side-rail', attrs: { 'aria-label': 'Reader navigation' } });
+        for (const id of Object.keys(TAB_LABELS)) {
+            const label = TAB_LABELS[id];
+            const control = materialButton(RAIL_ICONS[id], label, () => {
+                const target = activateSide(this.state.side, id);
+                this.onSelect(target);
+                if (target === 'search') {
+                    window.setTimeout(() => this.panel.querySelector('input[type="search"]')?.focus(), 0);
+                }
+            }, { cls: 'side-rail-btn', keys: id === 'search' ? 'Ctrl+F' : undefined });
+            control.id = `reader-rail-${id}`;
+            control.setAttribute('aria-controls', 'reader-side-content');
+            control.setAttribute('aria-expanded', 'false');
+            this.railButtons.set(id, control);
+            this.rail.appendChild(control);
+        }
+        const collapse = materialButton('chevron_left', 'Collapse side panel', () => {
+            const active = this.state.side;
+            this.onSelect('none');
+            if (active !== 'none')
+                this.railButtons.get(active)?.focus();
+        }, { cls: 'side-close flat', keys: 'Ctrl+B' });
+        this.header = h('header', { class: 'side-header' }, h('h2', { id: 'reader-side-title', text: 'Contents' }), collapse);
+        this.panel = h('section', { class: 'panel', id: 'reader-side-content',
+            attrs: { role: 'region', 'aria-labelledby': 'reader-side-title', tabindex: 0 } });
+        this.drawer = h('div', { class: 'side-drawer' }, this.header, this.panel);
+        this.el = h('aside', { class: 'side', attrs: { 'aria-label': 'Document navigation' } }, this.rail, this.drawer);
         state.on('side', () => this.render());
         state.on('annotations', () => { if (this.state.side === 'annotations')
             this.renderNotes(); });
-        state.on('status', () => { if (this.state.side === 'outline')
-            this.markCurrentOutline(); if (this.state.side === 'thumbnails')
-            this.markCurrentPage(); });
+        state.on('status', () => {
+            if (this.state.side === 'outline')
+                this.markCurrentOutline();
+            if (this.state.side === 'thumbnails')
+                this.markCurrentPage();
+        });
     }
     attach(session) {
+        // Document-scoped requests and caches cannot survive a document switch.
+        this.generation++;
+        this.searchRequest++;
+        window.clearTimeout(this.search.timer);
         this.session = session;
         this.outline = null;
-        this.search = { ...this.search, result: null, current: -1, notes: [], error: '' };
-        this.assist = { ...this.assist, result: null, status: null, checked: null, passages: null, error: '' };
+        this.allowed = false;
+        this.search = { ...this.search, query: '', result: null, current: -1, notes: [],
+            busy: false, timer: 0, error: '' };
+        this.assist = { ...this.assist, status: null, result: null, checked: null,
+            passages: null, busy: false, question: '', error: '' };
         this.render();
     }
     render() {
         const side = this.state.side;
-        this.el.hidden = !this.session; // closing only collapses the panel (CSS slides it), so its content stays for the animation
-        if (this.el.hidden || side === 'none')
+        const hadFocus = this.drawer.contains(document.activeElement);
+        if (side !== 'none')
+            this.lastActive = side;
+        const opened = !!this.session && side !== 'none';
+        this.el.hidden = !this.session;
+        // Keep the drawer in the DOM for motion; make closed controls unfocusable.
+        this.drawer.inert = !opened;
+        if (!opened && hadFocus && this.session)
+            this.railButtons.get(this.lastActive)?.focus();
+        this.drawer.setAttribute('aria-hidden', String(!opened));
+        for (const [id, control] of this.railButtons) {
+            const active = side === id;
+            control.classList.toggle('active', active);
+            control.setAttribute('aria-expanded', String(active));
+            if (active)
+                control.setAttribute('aria-current', 'true');
+            else
+                control.removeAttribute('aria-current');
+        }
+        if (!opened)
             return;
-        replace(this.tabs);
-        Object.keys(TAB_LABELS).forEach((id) => {
-            const on = side === id;
-            const b = h('button', { class: 'btn small' + (on ? ' active' : ''), text: TAB_LABELS[id], attrs: { role: 'tab', type: 'button', 'aria-selected': String(on), id: `tab-${id}` }, on: { click: () => this.state.setSide(id) } });
-            this.tabs.appendChild(b);
-        });
-        this.tabs.appendChild(h('span', { class: 'spacer' }));
-        const close = materialButton('close', 'Close side panel', () => this.onClose(), { cls: 'side-close flat', keys: 'Ctrl+B' });
-        this.tabs.appendChild(close);
-        this.panel.setAttribute('aria-labelledby', `tab-${side}`);
+        this.header.querySelector('h2').textContent = TAB_LABELS[side];
         switch (side) {
             case 'outline':
                 void this.renderOutline();
@@ -82,23 +141,34 @@ export class Sidebar {
         const s = this.session;
         if (!s)
             return;
+        const generation = this.generation;
         replace(this.panel, h('p', { class: 'muted', text: 'Loading contents…' }));
+        let outline;
         try {
-            this.outline ??= await s.api.get(`/api/doc/${s.sid}/outline`);
+            outline = this.outline ?? await s.api.get(`/api/doc/${s.sid}/outline`);
         }
         catch (e) {
-            replace(this.panel, h('p', { class: 'error', text: e instanceof Error ? e.message : 'Could not load the contents.' }));
+            if (this.session === s && generation === this.generation && this.state.side === 'outline') {
+                replace(this.panel, h('p', { class: 'error', text: e instanceof Error ? e.message : 'Could not load the contents.' }));
+            }
             return;
         }
+        if (this.session !== s || generation !== this.generation)
+            return;
+        this.outline = outline;
         if (this.state.side !== 'outline')
             return;
-        if (!this.outline.length) {
-            replace(this.panel, h('p', { class: 'muted', text: s.fixed ? 'This PDF has no table of contents. Use the Pages tab or Go to page.' : 'This document has no headings to list.' }));
+        if (!outline.length) {
+            replace(this.panel, h('p', { class: 'muted', text: s.fixed ?
+                    'This PDF has no table of contents. Use Pages or Go to page.' :
+                    'This document has no headings to list.' }));
             return;
         }
         const list = h('ul', { class: 'list outline' });
-        this.outline.forEach((item, i) => {
-            const b = h('button', { class: 'item', text: item.title, data: { i }, attrs: { type: 'button' }, on: { click: () => { void s.view.goTo(item.location); } } });
+        outline.forEach((item, i) => {
+            const b = h('button', { class: 'item', text: item.title, data: { i },
+                attrs: { type: 'button', title: item.title },
+                on: { click: () => { void s.view.goTo(item.location); } } });
             b.style.setProperty('--lvl', String(Math.max(0, item.level - 1)));
             list.appendChild(h('li', {}, b));
         });
@@ -120,6 +190,7 @@ export class Sidebar {
         const s = this.session;
         if (!s)
             return;
+        const generation = this.generation;
         if (s.fixed) {
             const n = s.payload.info.pages ?? 0;
             const v = this.state.effective.values;
@@ -137,7 +208,7 @@ export class Sidebar {
         replace(this.panel, h('p', { class: 'muted', text: 'Loading…' }));
         try {
             const res = await s.api.get(`/api/doc/${s.sid}/pages`);
-            if (this.state.side !== 'thumbnails')
+            if (this.session !== s || generation !== this.generation || this.state.side !== 'thumbnails')
                 return;
             if (res.pages.length <= 1) {
                 replace(this.panel, h('p', { class: 'muted', text: 'This document has no page breaks. It flows continuously; use Contents, search or the progress bar to move around.' }));
@@ -149,7 +220,8 @@ export class Sidebar {
             replace(this.panel, h('p', { class: 'hint', text: res.note ?? '' }), grid);
         }
         catch (e) {
-            replace(this.panel, h('p', { class: 'error', text: e instanceof Error ? e.message : 'Could not load pages.' }));
+            if (this.session === s && generation === this.generation && this.state.side === 'thumbnails')
+                replace(this.panel, h('p', { class: 'error', text: e instanceof Error ? e.message : 'Could not load pages.' }));
         }
     }
     markCurrentPage() {
@@ -280,7 +352,11 @@ export class Sidebar {
         }
     }
     // ------------------------------------------------------------------ search
-    focusSearch() { this.state.setSide('search'); window.setTimeout(() => this.panel.querySelector('input[type="search"]')?.select(), 20); }
+    focusSearch() {
+        if (this.state.side !== 'search')
+            this.onSelect('search');
+        window.setTimeout(() => this.panel.querySelector('input[type="search"]')?.select(), 20);
+    }
     renderSearch() {
         const s = this.session;
         if (!s)
@@ -312,10 +388,14 @@ export class Sidebar {
         if (!s)
             return;
         const q = st.query.trim();
+        const caseSensitive = st.caseSensitive;
+        const request = ++this.searchRequest;
         if (!q) {
             st.result = null;
             st.current = -1;
             st.notes = [];
+            st.error = '';
+            st.busy = false;
             s.view.setHits([], -1);
             this.paintSearch();
             return;
@@ -324,8 +404,12 @@ export class Sidebar {
         st.error = '';
         this.paintSearch();
         try {
-            const [res, notes] = await Promise.all([s.search(q, st.caseSensitive), s.api.get(`/api/doc/${s.sid}/search-notes${qs({ q })}`)]);
-            if (q !== st.query.trim())
+            const [res, notes] = await Promise.all([
+                s.search(q, caseSensitive),
+                s.api.get(`/api/doc/${s.sid}/search-notes${qs({ q })}`),
+            ]);
+            if (request !== this.searchRequest || this.session !== s ||
+                q !== st.query.trim() || caseSensitive !== st.caseSensitive)
                 return;
             st.result = res;
             st.notes = notes;
@@ -333,8 +417,12 @@ export class Sidebar {
             s.view.setHits(res.hits, st.current);
         }
         catch (e) {
+            if (request !== this.searchRequest || this.session !== s)
+                return;
             st.error = e instanceof Error ? e.message : 'The search failed.';
         }
+        if (request !== this.searchRequest || this.session !== s)
+            return;
         st.busy = false;
         this.paintSearch();
     }
@@ -396,7 +484,7 @@ export class Sidebar {
         this.paintSearch();
         this.panel.querySelector('li.current')?.scrollIntoView({ block: 'nearest' });
     }
-    clearSearch() { this.search.result = null; this.search.current = -1; this.session?.view.setHits([], -1); }
+    clearSearch() { this.searchRequest++; window.clearTimeout(this.search.timer); this.search.busy = false; this.search.result = null; this.search.current = -1; this.session?.view.setHits([], -1); this.paintSearch(); }
     // ------------------------------------------------------------------ assistant
     async renderAssistant() {
         const s = this.session;
@@ -408,13 +496,19 @@ export class Sidebar {
             return;
         }
         replace(this.panel, h('p', { class: 'muted', text: 'Checking which SLAI agents are available…' }));
+        const generation = this.generation;
         try {
-            this.assist.status = await s.api.get('/api/assist/status');
+            const status = this.assist.status ?? await s.api.get('/api/assist/status');
+            if (this.session !== s || generation !== this.generation || this.state.side !== 'assistant')
+                return;
+            this.assist.status = status;
         }
         catch (e) {
+            if (this.session !== s || generation !== this.generation)
+                return;
             this.assist.error = e instanceof Error ? e.message : 'Could not reach the assistant.';
         }
-        if (this.state.side !== 'assistant')
+        if (this.session !== s || generation !== this.generation || this.state.side !== 'assistant')
             return;
         const st = this.assist.status;
         const usable = !!st?.gateway;
@@ -477,21 +571,29 @@ export class Sidebar {
     }
     async checkDoc(s) { await this.callAssist(s, 'check', {}, 'checked'); }
     async callAssist(s, what, body, slot) {
+        const generation = this.generation;
         this.assist.busy = true;
         this.assist.error = '';
         const out = this.panel.querySelector('#assist-out');
         if (out)
             replace(out, h('p', { class: 'muted', text: 'Working…' }));
         try {
-            this.assist[slot] = await s.api.post(`/api/doc/${s.sid}/assist/${what}`, body);
+            const result = await s.api.post(`/api/doc/${s.sid}/assist/${what}`, body);
+            if (this.session !== s || generation !== this.generation)
+                return;
+            this.assist[slot] = result;
         }
         catch (e) {
+            if (this.session !== s || generation !== this.generation)
+                return;
             this.assist.error = e instanceof Error ? e.message : 'The request failed.';
         }
         this.assist.busy = false;
-        const o2 = this.panel.querySelector('#assist-out');
-        if (o2)
-            this.paintAssist(o2);
+        if (this.state.side !== 'assistant')
+            return;
+        const output = this.panel.querySelector('#assist-out');
+        if (output)
+            this.paintAssist(output);
     }
     paintAssist(out) {
         const s = this.session;

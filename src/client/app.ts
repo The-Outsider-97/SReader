@@ -54,6 +54,7 @@ export class App implements AppearanceHost {
       this.state.prefs = p.values; this.state.defaults = p.defaults; this.state.effective = p.effective;
       this.state.highlightColor = p.values.highlightColors[0] ?? '#facc15';
     } catch (e) {
+      window.dispatchEvent(new CustomEvent('slai:startup-error', { detail: e instanceof Error ? e.message : 'Reader could not be reached.' }));
       replace(this.root, h('main', { class: 'library' }, h('h1', { text: 'SLAI Reader' }), h('div', { class: 'banner bad', attrs: { role: 'alert' } }, h('div', { class: 'grow', text: e instanceof ApiError ? e.message : 'Reader could not be reached.' }),
         h('div', { class: 'small', text: 'Open the address Reader printed when it started, including the part after \u201C?token=\u201D.' }))));
       return;
@@ -69,6 +70,7 @@ export class App implements AppearanceHost {
     try { startup = await api.get<StartupResponse>('/api/startup'); } catch { /* the library still works */ }
     if (startup.opened.length) await this.openPayload(startup.opened[0]);
     else await this.showLibrary();
+    window.dispatchEvent(new Event('slai:ready'));
     for (const n of notes) this.banner(n, 'info');
     for (const pr of startup.problems) {
       if (pr.error.code === 'password_required' || pr.error.code === 'wrong_password') void this.openPath(pr.path);
