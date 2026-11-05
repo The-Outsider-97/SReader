@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(root, 'dist');
@@ -20,3 +20,15 @@ cpSync(join(root, 'src', 'client', 'styles.css'), join(dist, 'styles.css'));
 // The application icons (assets/: the SReader logo and the sizes made from it by tools/make_icons.py) travel with the client.
 if (existsSync(join(root, 'assets'))) cpSync(join(root, 'assets'), join(dist, 'assets'), { recursive: true });
 console.log('Built dist/');
+
+// Standalone distributions include the published loader in dist/startup.
+const shared = process.env.SLAI_ROOT
+  ? join(process.env.SLAI_ROOT, 'applications', 'tools')
+  : join(root, '..', 'tools');
+const publisher = join(shared, 'build', 'publish-startup.mjs');
+if (existsSync(publisher)) {
+  const { publishStartup } = await import(pathToFileURL(publisher).href);
+  publishStartup(dist);
+} else if (!['loader.js', 'loader.css'].every(file => existsSync(join(dist, 'startup', file)))) {
+  throw new Error('Set SLAI_ROOT to build with the shared SLAI startup assets.');
+}

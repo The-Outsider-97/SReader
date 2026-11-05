@@ -116,7 +116,7 @@ export class Sidebar {
       if (active) control.setAttribute('aria-current', 'true');
       else control.removeAttribute('aria-current');
     }
-    if (!opened || side === 'none') return;
+    if (!opened) return;
     this.header.querySelector('h2')!.textContent = TAB_LABELS[side];
     switch (side) {
       case 'outline': void this.renderOutline(); break;
